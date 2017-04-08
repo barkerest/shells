@@ -1,7 +1,7 @@
 require 'shells/version'
 require 'shells/errors'
 require 'shells/shell_base'
-require 'shells/secure_shell'
+require 'shells/ssh_session'
 
 ##
 # A set of basic shell classes.

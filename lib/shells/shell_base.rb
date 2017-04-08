@@ -2,6 +2,8 @@ module Shells
 
   ##
   # Provides a base interface for all shells to build on.
+  #
+  # Instantiating this class will raise an error.
   class ShellBase
 
     ##
@@ -33,8 +35,13 @@ module Shells
     #
     # Once the shell is initialized, the shell is yielded to the provided code block.
     def initialize(options = {}, &block)
+
+      # cannot instantiate a ShellBase
+      raise NotImplementedError if self.class == Shells::ShellBase
+
       raise ArgumentError, 'A code block is required.' unless block_given?
       raise ArgumentError, '\'options\' must be a hash.' unless options.is_a?(Hash)
+
       @options = {
           prompt: '~~#',
           retrieve_exit_code: false,
@@ -152,6 +159,7 @@ module Shells
     #     :retrieve_exit_code    = :default or true or false
     #     :on_non_zero_exit_code = :default or :ignore or :raise
     #     :silence_timeout       = :default or seconds to wait in silence
+    #     :command_timeout       = :default or max seconds to wait for command to finish
     #
     # If provided, the +block+ is a chunk of code that will be processed every time the
     # shell receives output from the program.  If the block returns a string, the string
