@@ -22,9 +22,12 @@ module Shells
     #       Defaults to false. Can also be true.
     #   :on_non_zero_exit_code
     #       Defaults to :ignore. Can also be :raise.
-    #   :wait_timeout
+    #   :silence_timeout
     #       Defaults to 0.
     #       If greater than zero, will raise an error after waiting this many seconds for a prompt.
+    #   :command_timeout
+    #       Defaults to 0.
+    #       If greater than zero, will raise an error after a command runs for this long without finishing.
     #
     # Please check the documentation for specific shell options.
     #
@@ -36,7 +39,8 @@ module Shells
           prompt: '~~#',
           retrieve_exit_code: false,
           on_non_zero_exit_code: :ignore,
-          wait_timeout: 0
+          silence_timeout: 0,
+          command_timeout: 0
       }.merge( options.inject({}){ |m,(k,v)|  m[k.to_sym] = v; m } )
 
       @options[:prompt] = @options[:prompt]
@@ -50,12 +54,13 @@ module Shells
 
       @options[:prompt] = '~~#' if @options[:prompt] == ''
 
-      raise ArgumentError, ':on_non_zero_exit_code must be :ignore, :raise, or nil.' unless [:ignore, :raise].include?(@options[:on_non_zero_exit_code])
+      raise Shells::InvalidOption, ':on_non_zero_exit_code must be :ignore, :raise, or nil.' unless [:ignore, :raise].include?(@options[:on_non_zero_exit_code])
 
       validate_options
       @options.freeze   # no more changes to options now.
 
       @session_complete = false
+      @last_input = Time.now
 
       exec_shell do
         run_hook :before_init
@@ -146,6 +151,7 @@ module Shells
     # The +options+ can be used to override the exit code behavior.
     #     :retrieve_exit_code    = :default or true or false
     #     :on_non_zero_exit_code = :default or :ignore or :raise
+    #     :silence_timeout       = :default or seconds to wait in silence
     #
     # If provided, the +block+ is a chunk of code that will be processed every time the
     # shell receives output from the program.  If the block returns a string, the string
@@ -164,7 +170,8 @@ module Shells
       options = self.options.merge(options.inject({}) { |m,(k,v)| m[k.to_sym] = v; m })
       options[:retrieve_exit_code] = self.options[:retrieve_exit_code] if options[:retrieve_exit_code] == :default
       options[:on_non_zero_exit_code] = self.options[:on_non_zero_exit_code] unless options[:on_non_zero_exit_code] == :default
-      options[:wait_timeout] = self.options[:wait_timeout] if options[:wait_timeout] == :default
+      options[:silence_timeout] = self.options[:silence_timeout] if options[:silence_timeout] == :default
+      options[:command_timeout] = self.options[:command_timeout] if options[:command_timeout] == :default
 
       push_buffer # store the current buffer and start a fresh buffer
 
@@ -175,7 +182,7 @@ module Shells
 
       # send the command and wait for the prompt to return.
       send_data command + line_ending
-      wait_for_prompt
+      wait_for_prompt options[:silence_timeout], options[:command_timeout]
 
       # return buffering to normal.
       if block_given?
@@ -282,8 +289,6 @@ module Shells
 
 
 
-
-
     ##
     # Waits for the prompt to appear at the end of the output.
     #
@@ -291,9 +296,54 @@ module Shells
     # This is automatically called in +exec+ so you would only need
     # to call it directly if you were sending data manually to the
     # shell.
-    def wait_for_prompt
+    def wait_for_prompt(silence_timeout = nil, command_timeout = nil)
       raise Shells::SessionCompleted if session_complete?
+
+      silence_timeout ||= options[:silence_timeout]
+      command_timeout ||= options[:command_timeout]
+
+      sent_nl_at = nil
+      sent_nl_times = 0
+      silence_timeout = silence_timeout.to_s.to_f unless silence_timeout.is_a?(Numeric)
+      nudge_timeout =
+          if silence_timeout > 0
+            (silence_timeout / 3)  # we want to nudge twice before officially timing out.
+          else
+            0
+          end
+
+      command_timeout = command_timeout.to_s.to_f unless command_timeout.is_a?(Numeric)
+      timeout =
+          if command_timeout > 0
+            Time.now + command_timeout
+          else
+            nil
+          end
+
       loop do
+        last_input = @last_input
+
+        # Do we need to nudge the shell?
+        if nudge_timeout > 0 && (Time.now - last_input) > nudge_timeout
+
+          # Have we previously nudged the shell?
+          if sent_nl_times > 2
+            raise Shells::SilenceTimeout
+          else
+            sent_nl_times = (sent_nl_at.nil? || sent_nl_at < last_input) ? 1 : (sent_nl_times + 1)
+            sent_nl_at = Time.now
+
+            send_data line_ending
+
+            # wait a bit longer...
+            @last_input = sent_nl_at
+          end
+        end
+
+        if timeout && Time.now > timeout
+          raise Shells::CommandTimeout
+        end
+
         !(combined_output =~ prompt_match)
       end
     end
@@ -308,14 +358,56 @@ module Shells
       raise Shells::SessionCompleted if session_complete?
       block ||= Proc.new { }
       stdout_received do |data|
+        @last_input = Time.now
         append_stdout strip_ansi_escape(data), &block
       end
       stderr_received do |data|
+        @last_input = Time.now
         append_stderr strip_ansi_escap(data), &block
       end
     end
 
+    ##
+    # Pushes the buffers for output capture.
+    def push_buffer
+      # push the buffer so we can get the output of a command.
+      stdout_hist.push stdout
+      stderr_hist.push stderr
+      stdcomb_hist.push combined_output
+      self.stdout = ''
+      self.stderr = ''
+      self.combined_output = ''
+    end
 
+    ##
+    # Pops the buffers and merges the captured output.
+    def pop_merge_buffer
+      # almost a standard pop, however we want to merge history with current.
+      if (hist = stdout_hist.pop)
+        self.stdout = hist + stdout
+      end
+      if (hist = stderr_hist.pop)
+        self.stderr = hist + stderr
+      end
+      if (hist = stdcomb_hist.pop)
+        self.combined_output = hist + combined_output
+      end
+    end
+
+    ##
+    # Pops the buffers and discards the captured output.
+    def pop_discard_buffer
+      # a standard pop discarding current data and retrieving the history.
+      if (hist = stdout_hist.pop)
+        @stdout = hist
+      end
+      if (hist = stderr_hist.pop)
+        @stderr = hist
+      end
+      if (hist = stdcomb_hist.pop)
+        @stdcomb = hist
+      end
+    end
 
     private
 
@@ -440,30 +532,7 @@ module Shells
     end
 
     def stdcomb_hist
-      @stdcom_hist ||= []
-    end
-
-    def push_buffer
-      # push the buffer so we can get the output of a command.
-      stdout_hist.push stdout
-      stderr_hist.push stderr
-      stdcomb_hist.push combined_output
-      self.stdout = ''
-      self.stderr = ''
-      self.combined_output = ''
-    end
-
-    def pop_merge_buffer
-      # almost a standard pop, however we want to merge history with current.
-      if (hist = stdout_hist.pop)
-        self.stdout = hist + stdout
-      end
-      if (hist = stderr_hist.pop)
-        self.stderr = hist + stderr
-      end
-      if (hist = stdcomb_hist.pop)
-        self.combined_output = hist + combined_output
-      end
+      @stdcomb_hist ||= []
     end
 
     def prompt_match
