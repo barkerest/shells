@@ -37,4 +37,9 @@ module Shells
   # An error raise when a session is waiting for a command to finish for too long.
   CommandTimeout    = Class.new(ShellError)
 
+  ##
+  # An error raised when the session fails to set the prompt in the shell.
+  FailedToSetPrompt = Class.new(Shells::ShellError)
+
+
 end

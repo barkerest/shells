@@ -42,8 +42,7 @@ module Shells
 
     ##
     # The error raised when we fail to start the shell on the PTY.
-    FaileToStartShell = Class.new(Shells::ShellError)
-
+    FailedToStartShell = Class.new(Shells::ShellError)
 
 
     protected
@@ -117,8 +116,16 @@ module Shells
     end
 
     def exec_prompt(&block)
-      # set the prompt, wait up to 5 seconds for a response.
-      exec "PS1=\"#{options[:prompt]}\"", command_timeout: 5, retrieve_exit_code: false
+      # set the prompt, wait up to 2 seconds for a response, then try one more time.
+      begin
+        exec "PS1=\"#{options[:prompt]}\"", command_timeout: 2, retrieve_exit_code: false
+      rescue Shells::CommandTimeout
+        begin
+          exec "PS1=\"#{options[:prompt]}\"", command_timeout: 2, retrieve_exit_code: false
+        rescue Shells::CommandTimeout
+          Shells::raise FailedToSetPrompt
+        end
+      end
 
       # yield to the block
       block.call
