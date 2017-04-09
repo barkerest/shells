@@ -1,8 +1,9 @@
 # Shells
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/shells`. To experiment with that code, run `bin/console` for an interactive prompt.
+This gem is a collection of shell classes that can be used to interact with various devices.
+It started as a secure shell to interact with SSH hosts, but then I wanted something for serial devices
+as well
 
-TODO: Delete this and the text above, and describe your gem
 
 ## Installation
 

@@ -7,6 +7,10 @@ module Shells
   class ShellBase
 
     ##
+    # Raise a QuitNow to tell the shell to stop processing and exit.
+    QuitNow = Class.new(Exception)
+
+    ##
     # The options provided to this shell.
     attr_reader :options
 
@@ -70,11 +74,19 @@ module Shells
       @last_input = Time.now
 
       exec_shell do
-        run_hook :before_init
-        exec_prompt do
-          block.call self
+        begin
+          run_hook :before_init
+          exec_prompt do
+            block.call self
+          end
+          run_hook :before_term
+        rescue QuitNow
+          nil
+        rescue Exception => ex
+          unless run_hook(:on_exception, ex)
+            raise
+          end
         end
-        run_hook :before_term
       end
 
       @session_complete = true
@@ -96,6 +108,15 @@ module Shells
     # This method allows you to define that behavior without rewriting the connection code.
     def self.before_term(proc = nil, &block)
       add_hook :before_term, proc, block
+    end
+
+    ##
+    # Adds code to be run when an exception occurs.
+    #
+    # This code will receive the shell as the first argument and the exception as the second.
+    # If it handles the exception it should return true, otherwise nil or false.
+    def self.on_exception(proc = nil, &block)
+      add_hook :on_exception, proc, block
     end
 
     ##
@@ -297,6 +318,8 @@ module Shells
 
 
 
+
+
     ##
     # Waits for the prompt to appear at the end of the output.
     #
@@ -354,6 +377,17 @@ module Shells
 
         !(combined_output =~ prompt_match)
       end
+
+      pos = combined_output =~ prompt_match
+      if combined_output[pos - 1] != "\n"
+        # no newline before prompt, fix that.
+        self.combined_output = combined_output[0...pos] + "\n" + combined_output[pos..-1]
+      end
+      if stdout[-1] != "\n"
+        # no newline at end, fix that.
+        self.stdout <<= "\n"
+      end
+
     end
 
     ##
@@ -417,28 +451,33 @@ module Shells
       end
     end
 
+
     private
 
 
-    def add_hook(hook_name, proc, block)
+    def self.add_hook(hook_name, proc, block)
       hooks[hook_name] ||= []
       if proc.respond_to?(:call)
         hooks[hook_name] << proc
+      elsif proc.is_a?(Symbol) || proc.is_a?(String)
+        if self.respond_to?(proc)
+          hooks[hook_name] << method(proc.to_sym)
+        end
       end
       if block.respond_to?(:call)
         hooks[hook_name] << block
       end
     end
 
-    def run_hook(hook_name)
-      (hooks[hook_name] || []).each do |hook|
-        result = hook.call(self)
-        return false if result.is_a?(FalseClass)
+    def run_hook(hook_name, *args)
+      (self.class.hooks[hook_name] || []).each do |hook|
+        result = hook.call(self, *args)
+        return true if result.is_a?(TrueClass)
       end
-      true
+      false
     end
 
-    def hooks
+    def self.hooks
       @hooks ||= {}
     end
 
@@ -491,7 +530,7 @@ module Shells
     end
 
     def reduce_newlines(data)
-      data.gsub("\r\n", "\n").gsub("\r", "")
+      data.gsub("\r\n", "\n").gsub(" \r", "").gsub("\r", "")
     end
 
     def command_output(command)
@@ -514,7 +553,7 @@ module Shells
       # shell to echo it back to us.
       result_cmd,_,result_data = ret.partition("\n")
       until result_data.to_s.strip == '' || possible_starts.include?(result_cmd)
-        result_cmd,_,result_data = ret.partition("\n")
+        result_cmd,_,result_data = result_data.partition("\n")
       end
 
       result_data
