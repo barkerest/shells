@@ -76,7 +76,7 @@ module Shells
   #       speed: 9600
   #   ) do |shell|
   #     shell.exec('cd /usr/local/bin')
-  #     user_bin_files = shell.exec('ls -A1').split('\n')
+  #     user_bin_files = shell.exec('ls -A1').split("\n")
   #     @app_is_installed = user_bin_files.include?('my_app')
   #   end
   #
