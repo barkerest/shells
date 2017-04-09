@@ -1,9 +1,9 @@
-require 'net/ssh'
+require 'rubyserial'
 require 'shells/shell_base'
 
 module Shells
   ##
-  # Executes an SSH session with a host.
+  # Executes a serial session with a device.
   #
   # The default setup of this class should work well with any bash-like shell.
   # In particular, the +exec_prompt+ method sets the "PS1" environment variable, which should set the prompt the shell
@@ -13,15 +13,18 @@ module Shells
   #
   #
   # Valid options:
-  # *   +host+
-  #     The name or IP address of the host to connect to.  Defaults to 'localhost'.
-  # *   +port+
-  #     The port on the host to connect to.  Defaults to 22.
-  # *   +user+
-  #     The user to login with.  This option is required.
-  # *   +password+
-  #     The password to login with.
-  #     If our public key is an authorized key on the host, the password is ignored.
+  # *   +path+
+  #     The path to the serial device (e.g. - COM3 or /dev/tty2)
+  #     This is a required option.
+  # *   +speed+
+  #     The bitrate for the connection.
+  #     The default is 115200.
+  # *   +data_bits+
+  #     The number of data bits for the connection.
+  #     The default is 8.
+  # *   +parity+
+  #     The parity for the connection.
+  #     The default is :none.
   # *   +prompt+
   #     The prompt used to determine when processes finish execution.
   #     Defaults to '~~#', but if that doesn't work for some reason because it is valid output from one or more
@@ -29,9 +32,6 @@ module Shells
   #     The characters you should avoid are !, $, \, /, ", and ' because no attempt is made to escape them and the
   #     resulting prompt can very easily become something else entirely.  If they are provided, they will be
   #     replaced to protect the shell from getting stuck.
-  # *   +shell+
-  #     If set to :shell, then the default shell is executed.
-  #     If set to anything else, it is assumed to be the executable path to the shell you want to run.
   # *   +quit+
   #     If set, this defines the command to execute when quitting the session.
   #     The default is "exit" which will probably work most of the time.
@@ -57,8 +57,6 @@ module Shells
   #     If set to 0 (or less) there is no timeout.
   #     Unlike +silence_timeout+ this value does not reset when we receive feedback.
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
-  # *   +connect_timeout+
-  #     This is the maximum amount of time to wait for the initial connection to the SSH shell.
   # *   +override_set_prompt+
   #     If provided, this must be set to either a command string that will set the prompt, or a Proc that accepts
   #     the shell as an argument.
@@ -73,102 +71,54 @@ module Shells
   #     code.
   #     If set to a Proc, the Proc is called and the return value of the proc is used as the exit code.
   #
-  #   Shells::SshSession.new(
-  #       host: '10.10.10.10',
-  #       user: 'somebody',
-  #       password: 'super-secret'
+  #   Shells::SerialSession.new(
+  #       path: '/dev/ttyusb3',
+  #       speed: 9600
   #   ) do |shell|
   #     shell.exec('cd /usr/local/bin')
   #     user_bin_files = shell.exec('ls -A1').split('\n')
   #     @app_is_installed = user_bin_files.include?('my_app')
   #   end
   #
-  class SshSession < Shells::ShellBase
+  class SerialSession < Shells::ShellBase
 
-    ##
-    # The error raised when we failed to request a PTY.
-    FailedToRequestPty = Class.new(Shells::ShellError)
-
-    ##
-    # The error raised when we fail to start the shell on the PTY.
-    FailedToStartShell = Class.new(Shells::ShellError)
-
+    def line_ending # :nodoc:
+      "\r\n"
+    end
 
     protected
 
-    def validate_options  # :nodoc:
-      options[:host] ||= 'localhost'
-      options[:port] ||= 22
-      options[:shell] ||= :shell
+    def validate_options
+      options[:speed] ||= 115200
+      options[:data_bits] ||= 8
+      options[:parity] ||= :none
       options[:quit] ||= 'exit'
       options[:connect_timeout] ||= 5
 
-      raise InvalidOption, 'Missing host.' if options[:host].to_s.strip == ''
-      raise InvalidOption, 'Missing user.' if options[:user].to_s.strip == ''
+      raise InvalidOption, 'Missing path.' if options[:path].to_s.strip == ''
     end
 
-    def exec_shell(&block)  # :nodoc:
+    def exec_shell(&block)
 
-      ignore_io_error = false
+      @serport = Serial.new options[:path], options[:speed], options[:data_bits], options[:parity]
+
       begin
+        # start buffering
+        buffer_input
 
-        Net::SSH.start(
-            options[:host],
-            options[:user],
-            password: options[:password],
-            port: options[:port],
-            non_interactive: true,
-            timeout: options[:connect_timeout]
-        ) do |ssh|
+        # yield to the block
+        block.call
 
-          # open the channel
-          ssh.open_channel do |ch|
-            # request a PTY
-            ch.request_pty do |ch_pty, success_pty|
-              raise FailedToRequestPty unless success_pty
-
-              # pick a method to start the shell with.
-              meth = (options[:shell] == :shell) ? :send_channel_request : :exec
-
-              # start the shell
-              ch_pty.send(meth, options[:shell].to_s) do |ch_sh, success_sh|
-                raise FailedToStartShell unless success_sh
-
-                @channel = ch_sh
-
-                buffer_input
-
-                # give the shell a chance to get ready.
-                sleep 0.25
-
-                begin
-                  # yield to the block
-                  block.call
-
-                ensure
-                  # send the exit command.
-                  ignore_io_error = true
-                  send_data options[:quit] + line_ending
-                end
-
-                @channel.wait
-              end
-
-            end
-          end
-
-        end
-      rescue IOError
-        unless ignore_io_error
-          raise
-        end
       ensure
-        @channel = nil
-      end
+        # send the quit message.
+        send_data options[:quit] + line_ending
 
+        @serport.close
+        @serport = nil
+      end
     end
 
-    def exec_prompt(&block) # :nodoc:
+    def exec_prompt(&block)
       cmd = options[:override_set_prompt] || "PS1=\"#{options[:prompt]}\""
       if cmd.respond_to?(:call)
         raise Shells::FailedToSetPrompt unless cmd.call(self)
@@ -189,29 +139,32 @@ module Shells
       block.call
     end
 
-    def send_data(data) # :nodoc:
-      @channel.send_data data
+    def send_data(data)
+      @serport.write data
+      puts "I send #{data.inspect} to the serial device."
     end
 
-    def loop(&block)  # :nodoc:
-      @channel.connection.loop(&block)
-    end
-
-    def stdout_received(&block) # :nodoc:
-      @channel.on_data do |_,data|
-        block.call data
-      end
-    end
-
-    def stderr_received(&block) # :nodoc:
-      @channel.on_extended_data do |_, type, data|
-        if type == 1
-          block.call data
+    def loop(&block)
+      while true
+        while true
+          data = @serport.read(256).to_s
+          break if data == ""
+          puts "I read #{data.inspect} from the serial device."
+          @_stdout_recv.call data
         end
+        break unless block&.call
       end
     end
 
-    def get_exit_code # :nodoc:
+    def stdout_received(&block)
+      @_stdout_recv = block
+    end
+
+    def stderr_received(&block)
+      @_stderr_recv = block
+    end
+
+    def get_exit_code
       cmd = options[:override_get_exit_code] || 'echo $?'
       if cmd.respond_to?(:call)
         cmd.call(self)

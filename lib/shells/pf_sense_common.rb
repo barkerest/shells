@@ -120,19 +120,26 @@ module Shells
     end
 
     def validate_options  # :nodoc:
-      options[:host] ||= 'localhost'
-      options[:port] ||= 22
-      options[:shell] = '/usr/local/sbin/pfSsh.php'
+      super
+      options[:shell] = '/bin/sh'
       options[:prompt] = 'pfSense shell:'
       options[:quit] = 'exit'
-      options[:connect_timeout] ||= 5
       options[:retrieve_exit_code] = false
       options[:on_non_zero_exit_code] = :ignore
-      options[:override_set_prompt] = ->(sh) { sleep 1; true } # prompt is set by the shell itself, give the shell a second to load.
+      options[:override_set_prompt] = ->(sh) { true }
       options[:override_get_exit_code] = ->(sh) { 0 }
 
       raise InvalidOption, 'Missing host.' if options[:host].to_s.strip == ''
       raise InvalidOption, 'Missing user.' if options[:user].to_s.strip == ''
+    end
+
+    def exec_prompt(&block) # :nodoc:
+      exec '/usr/local/sbin/pfSsh.php', command_timeout: 5
+      begin
+        block.call
+      ensure
+        send_data 'exit' + line_ending
+      end
     end
 
     ##
