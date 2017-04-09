@@ -190,7 +190,7 @@ module Shells
     # Apply the firewall configuration.
     #
     # You need to apply the firewall configuration after you make changes to aliases, NAT rules, or filter rules.
-    def filter_configure
+    def apply_filter_config
       pf_exec(
           'require_once("shaper.inc");',
           'require_once("filter.inc");',
@@ -200,7 +200,7 @@ module Shells
 
     ##
     # Applies the user configuration for the specified user.
-    def user_configure(user_id)
+    def apply_user_config(user_id)
       user_id = user_id.to_i
       pf_exec(
           'require_once("auth.inc");',
@@ -268,7 +268,7 @@ module Shells
 
       set_config_section 'system', cfg, "Enable certificate authentication for #{options[:user]}."
 
-      user_configure user_id
+      apply_user_config user_id
     end
 
 
