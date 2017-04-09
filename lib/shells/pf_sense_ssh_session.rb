@@ -29,14 +29,22 @@ module Shells
   # *   +connect_timeout+
   #     This is the maximum amount of time to wait for the initial connection to the SSH shell.
   #
-  #   Shells::SshSession.new(
+  #   Shells::PfSenseSshSession.new(
   #       host: '10.10.10.10',
   #       user: 'somebody',
   #       password: 'super-secret'
   #   ) do |shell|
-  #     shell.exec('cd /usr/local/bin')
-  #     user_bin_files = shell.exec('ls -A1').split('\n')
-  #     @app_is_installed = user_bin_files.include?('my_app')
+  #     cfg = shell.get_config_section("aliases")
+  #     cfg["alias"] ||= []
+  #     cfg["alias"] << {
+  #         :name => "MY_NETWORK",
+  #         :type => "network",
+  #         :address => "192.168.1.0/24",
+  #         :descr => "My home network",
+  #         :details => "Created #{Time.now.to_s}"
+  #     }
+  #     shell.set_config_section("aliases", cfg, "Add home network")
+  #     shell.apply_filter_config
   #   end
   #
   class PfSenseSshSession < SshSession
