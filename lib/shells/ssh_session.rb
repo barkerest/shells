@@ -195,6 +195,7 @@ module Shells
 
     def send_data(data) #:nodoc:
       @channel.send_data data
+      debug "Sent: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
     end
 
     def loop(&block)  #:nodoc:
@@ -203,6 +204,7 @@ module Shells
 
     def stdout_received(&block) #:nodoc:
       @channel.on_data do |_,data|
+        debug "Received: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
         block.call data
       end
     end
@@ -210,6 +212,7 @@ module Shells
     def stderr_received(&block) #:nodoc:
       @channel.on_extended_data do |_, type, data|
         if type == 1
+          debug "Received: (#{data.size} bytes) [E] #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
           block.call data
         end
       end
@@ -220,11 +223,13 @@ module Shells
       if cmd.respond_to?(:call)
         cmd.call(self)
       else
+        debug 'Retrieving exit code from last command...'
         push_buffer
         send_data cmd + line_ending
         wait_for_prompt nil, 1
         ret = command_output(cmd).strip.to_i
         pop_discard_buffer
+        debug 'Exit code: ' + ret.to_s
         ret
       end
     end

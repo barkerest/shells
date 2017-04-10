@@ -51,66 +51,23 @@ module Shells
     PF_PROMPT = 'pfSense shell:'
 
     ##
-    # Provides class methods to the shell class.
-    module ClassMethods
+    # Gets the version of the pfSense firmware.
+    attr_accessor :pf_sense_version
 
-      protected
+    ##
+    # Gets the user currently logged into the pfSense device.
+    attr_accessor :pf_sense_user
 
-      ##
-      # Navigates the pfSense menu to get to a base shell.
-      #
-      # When you will be facing the pfSense menu, you should call this before initializing the prompt.
-      #   before_init :navigate_menu
-      #
-      def navigate_menu(shell) #:doc:
+    ##
+    # Gets the hostname of the pfSense device.
+    attr_accessor :pf_sense_host
 
-        # Usually the option will be 8 that we want, however we want to parse the menu just to be sure.
-        # So we'll start by pushing the buffer and then sending an invalid menu option sequence.
-        # This should cause the menu to be redrawn.
-        # The prompt we are looking for will be "Enter an option:".
 
-        temp_prompt = /Enter an option:\s*$/
-
-        shell.send(:push_buffer)
-        shell.send(:send_data, '-1' + shell.line_ending)
-
-        timeout = Time.now + 5
-        shell.send(:loop) do
-          raise Shells::CommandTimeout if Time.now > timeout
-          !(combined_output =~ temp_prompt)
-        end
-
-        menu = if (pos = (combined_output =~ temp_prompt))
-                 combined_output[0...pos]
-               else
-                 combined_output
-               end
-
-        if (match = (/\s(\d+)\)\s*shell\s/i).match(menu))
-          shell.send(:send_data, match[1] + shell.line_ending)
-          temp_prompt = /#\s*$/
-          timeout = Time.now + 5
-
-          shell.send(:loop) do
-            raise Shells::CommandTimeout if Time.now > timeout
-            !(combined_output =~ temp_prompt)
-          end
-        else
-          raise Shells::PfSenseCommon::MenuNavigationFailure
-        end
-
-        # We have successfully navigated the menu.
-        # Clean up the buffer and send a line ending to refresh the prompt.
-        shell.send(:pop_discard_buffer)
-        shell.send(:send_data, shell.line_ending)
-
-        true
-      end
-
+    def line_ending #:nodoc:
+      "\n"
     end
 
     def self.included(base)  #:nodoc:
-      base.extend Shells::PfSenseCommon::ClassMethods
 
       # Trap the RestartNow exception.
       # When encountered, change the :quit option to '/sbin/reboot'.
@@ -132,7 +89,7 @@ module Shells
 
     def validate_options  #:nodoc:
       super
-      options[:shell] = '/bin/sh'
+      options[:shell] = :shell
       options[:prompt] = 'pfSense shell:'
       options[:quit] = 'exit'
       options[:retrieve_exit_code] = false
@@ -141,19 +98,26 @@ module Shells
       options[:override_get_exit_code] = ->(sh) { 0 }
     end
 
+    def exec_shell(&block) #:nodoc:
+      super do
+        navigate_menu
+        block.call
+      end
+    end
+
     def exec_prompt(&block) #:nodoc:
+      debug 'Initializing pfSense shell...'
       exec '/usr/local/sbin/pfSsh.php', command_timeout: 5
       begin
         block.call
       ensure
+        debug 'Quitting pfSense shell...'
         send_data 'exit' + line_ending
       end
     end
 
     ##
     # Executes a series of commands on the pfSense shell.
-    #
-    # This would be the same as calling +exec+ for each command followed by an explicit 'exec' command passed to +exec+.
     def pf_exec(*commands)
       ret = ''
       commands.each { |cmd| ret += exec(cmd) }
@@ -350,6 +314,77 @@ module Shells
         value
       end
     end
+
+    def navigate_menu
+
+      # Usually the option will be 8 that we want, however we want to parse the menu just to be sure.
+      # So we'll start by pushing the buffer and then refreshing the menu.
+      # The prompt we are looking for will be "Enter an option:".
+
+      temp_prompt = /Enter an option:\s*$/
+
+      push_buffer
+
+      # Iif you send a blank entry to the SSH menu it will kick you out.
+      # So we'll send an invalid option (-1) to trigger the menu redraw.
+      send_data '-1' + line_ending
+
+      debug 'Waiting for menu to be redrawn...'
+
+      prompt_timeout = Time.now + 5
+
+      loop do
+        if Time.now > prompt_timeout
+          raise Shells::CommandTimeout
+        else
+          !(combined_output =~ temp_prompt)
+        end
+      end
+
+      debug 'Retrieving menu contents...'
+      menu = combined_output
+
+      debug 'Locating "XX) Shell" option...'
+      if (match = (/\s(\d+)\)\s*shell\s/i).match(menu))
+
+        debug "Sending option #{match[1]} to menu..."
+        send_data match[1] + line_ending
+
+
+        # For 2.3 and 2.4 this is a valid match.
+        # If future versions change the default prompt, we need to change our process.
+        # [VERSION][USER@HOSTNAME]/root:  where /root is the current dir.
+        temp_prompt = /\[(?<VER>[^\]]*)\]\[(?<USERHOST>[^\]]*)\](?<CD>\/.*):\s*$/
+        prompt_timeout = Time.now + 5
+
+        debug 'Waiting for default prompt "#" to appear...'
+        loop do
+          if Time.now > prompt_timeout
+            raise Shells::CommandTimeout
+          end
+          !(combined_output =~ temp_prompt)
+        end
+
+        # Might as well make use of the prompt data.
+        data = temp_prompt.match(combined_output)
+        self.pf_sense_version = data['VER']
+        u,_,h = data['USERHOST'].partition('@')
+        self.pf_sense_user = u
+        self.pf_sense_host = h
+
+        debug 'Menu has been navigated.'
+      else
+        raise Shells::PfSenseCommon::MenuNavigationFailure
+      end
+
+      # We have successfully navigated the menu.
+      # Clean up the buffer and send a line ending to refresh the prompt.
+      pop_discard_buffer
+      send_data line_ending
+
+      true
+    end
+
 
   end
 end

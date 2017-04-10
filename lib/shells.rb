@@ -18,7 +18,9 @@ require 'shells/pf_sense_serial_session'
 #
 module Shells
 
-  def self.method_missing(m, *args, &block)  # :nodoc:
+  ##
+  # Provides the ability for the Shells module to allow sessions to be instantiated without calling +new+.
+  def self.method_missing(m, *args, &block)  #:nodoc:
 
     is_const = const_defined?(m) rescue nil
 

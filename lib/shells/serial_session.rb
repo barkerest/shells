@@ -82,8 +82,16 @@ module Shells
   #
   class SerialSession < Shells::ShellBase
 
-    def line_ending #:nodoc:
-      "\r\n"
+    ##
+    # Sets the line ending for the instance.
+    def line_ending=(value)
+      @line_ending = value || "\r\n"
+    end
+
+    ##
+    # Gets the line ending for the instance.
+    def line_ending
+      @line_ending ||= "\r\n"
     end
 
     protected
@@ -141,15 +149,18 @@ module Shells
 
     def send_data(data) #:nodoc:
       @serport.write data
-      puts "I send #{data.inspect} to the serial device."
+      debug "Sent: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
     end
 
     def loop(&block) #:nodoc:
       while true
         while true
-          data = @serport.read(256).to_s
+          data = ''
+          while (byte = @serport.getbyte)
+            data << byte.chr
+          end
           break if data == ""
-          puts "I read #{data.inspect} from the serial device."
+          debug "Received: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
           @_stdout_recv.call data
         end
         break unless block&.call
@@ -169,11 +180,13 @@ module Shells
       if cmd.respond_to?(:call)
         cmd.call(self)
       else
+        debug 'Retrieving exit code from last command...'
         push_buffer
         send_data cmd + line_ending
         wait_for_prompt nil, 1
         ret = command_output(cmd).strip.to_i
         pop_discard_buffer
+        debug 'Exit code: ' + ret.to_s
         ret
       end
     end

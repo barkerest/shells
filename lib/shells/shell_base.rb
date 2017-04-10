@@ -11,7 +11,9 @@ module Shells
 
     ##
     # Raise a QuitNow to tell the shell to stop processing and exit.
-    QuitNow = Class.new(Exception)
+    class QuitNow  < Exception
+
+    end
 
     ##
     # The options provided to this shell.
@@ -79,15 +81,20 @@ module Shells
 
       @session_complete = false
       @last_input = Time.now
-
+      debug 'Calling "exec_shell"...'
       exec_shell do
         begin
+          debug 'Running "before_init" hooks...'
           run_hook :before_init
+          debug 'Calling "exec_prompt"...'
           exec_prompt do
+            debug 'Executing code block...'
             block.call self
           end
+          debug 'Running "before_term" hooks...'
           run_hook :before_term
         rescue QuitNow
+          debug 'Received QuitNow signal.'
           nil
         rescue Exception => ex
           unless run_hook(:on_exception, ex)
@@ -97,6 +104,28 @@ module Shells
       end
 
       @session_complete = true
+    end
+
+    ##
+    # Sets the code to be run when debug messages are processed.
+    #
+    # The code will receive the debug message as an argument.
+    #
+    #   on_debug do |msg|
+    #     puts msg
+    #   end
+    #
+    def self.on_debug(proc = nil, &block)
+      @on_debug =
+          if proc.respond_to?(:call)
+            proc
+          elsif proc && respond_to?(proc.to_s, true)
+            method(proc.to_s.to_sym)
+          elsif block
+            block
+          else
+            nil
+          end
     end
 
     ##
@@ -270,6 +299,7 @@ module Shells
       end
 
       # send the command and wait for the prompt to return.
+      debug 'Sending command: ' + command
       send_data command + line_ending
       wait_for_prompt options[:silence_timeout], options[:command_timeout]
 
@@ -279,6 +309,7 @@ module Shells
       end
 
       # get the output of the command, minus the trailing prompt.
+      debug 'Reading output of command...'
       ret = command_output command
 
       # restore the original buffer and merge the output from the command.
@@ -485,6 +516,7 @@ module Shells
     # cases outside of that method as well.
     def push_buffer #:doc:
       # push the buffer so we can get the output of a command.
+      debug 'Pushing buffer >>'
       stdout_hist.push stdout
       stderr_hist.push stderr
       stdcomb_hist.push combined_output
@@ -500,6 +532,7 @@ module Shells
     # cases outside of that method as well.
     def pop_merge_buffer #:doc:
       # almost a standard pop, however we want to merge history with current.
+      debug 'Merging buffer <<'
       if (hist = stdout_hist.pop)
         self.stdout = hist + stdout
       end
@@ -516,8 +549,9 @@ module Shells
     #
     # This method is used internally in the +get_exit_code+ method, but there may be legitimate use
     # cases outside of that method as well.
-    def pop_discard_buffer
+    def pop_discard_buffer #:doc:
       # a standard pop discarding current data and retrieving the history.
+      debug 'Discarding buffer <<'
       if (hist = stdout_hist.pop)
         @stdout = hist
       end
@@ -529,6 +563,18 @@ module Shells
       end
     end
 
+    ##
+    # Processes a debug message.
+    def self.debug(msg) #:doc:
+      @debug_proc ||= instance_variable_defined?(:@on_debug) ? (instance_variable_get(:@on_debug) || ->(msg) { }) : ->(msg){  }
+      @debug_proc.call(msg)
+    end
+
+    ##
+    # Processes a debug message for an instance.
+    def debug(msg) #:nodoc:
+      self.class.debug msg
+    end
 
     private
 
@@ -538,13 +584,17 @@ module Shells
       if proc.respond_to?(:call)
         hooks[hook_name] << proc
       elsif proc.is_a?(Symbol) || proc.is_a?(String)
-        if self.respond_to?(proc)
+        if self.respond_to?(proc, true)
           hooks[hook_name] << method(proc.to_sym)
         end
+      elsif proc
+        raise ArgumentError, 'proc must respond to :call method or be the name of a static method in this class'
       end
+
       if block.respond_to?(:call)
         hooks[hook_name] << block
       end
+
     end
 
     def run_hook(hook_name, *args)

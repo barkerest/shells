@@ -1,0 +1,21 @@
+pf_sense_serial:
+  path: /dev/ttyusb0
+  speed: 115200
+  data_bits: 8
+  parity: :none
+
+pf_sense_ssh:
+  host: 192.168.1.100
+  port: 22
+  user: admin
+  password: some-secret
+
+ssh:
+  host: 192.168.1.100
+  port: 22
+  user: admin
+  password: some-secret
+  shell: /bin/sh
+
+
+
