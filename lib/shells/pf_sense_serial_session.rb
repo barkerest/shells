@@ -50,8 +50,6 @@ module Shells
 
     include PfSenseCommon
 
-    before_init :navigate_menu
-
   end
 
 end
