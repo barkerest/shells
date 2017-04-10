@@ -223,7 +223,7 @@ module Shells
     # encounter or need to search for CRLF or CR sequences.
     #
     def stdout
-      @stdout || ''
+      @stdout ||= ''
     end
 
     ##
@@ -233,7 +233,7 @@ module Shells
     # encounter or need to search for CRLF or CR sequences.
     #
     def stderr
-      @stderr || ''
+      @stderr ||= ''
     end
 
     ##
@@ -248,7 +248,7 @@ module Shells
     # encounter or need to search for CRLF or CR sequences.
     #
     def combined_output
-      @stdcomb || ''
+      @stdcomb ||= ''
     end
 
     ##

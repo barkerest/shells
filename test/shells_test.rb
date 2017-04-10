@@ -1,12 +1,20 @@
 require 'test_helper'
+require 'yaml'
 
 class ShellsTest < Minitest::Test #:nodoc: all
 
-  def test_that_it_has_a_version_number
-    refute_nil ::Shells::VERSION
+  def setup
+    @cfg = YAML.load_file(File.expand_path('../config.yml', __FILE__))
   end
 
-  def test_it_does_something_useful
-    assert false
+  def test_basic_ssh_session
+    session = Shells::SshSession(@cfg['ssh']) do |sh|
+      sh.exec 'ls -al'
+    end
+
+    assert session.session_complete?
+
+
   end
+
 end
