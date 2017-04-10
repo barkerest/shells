@@ -157,7 +157,7 @@ module Shells
         end
         changes << "write_config(#{message.inspect});"
 
-        pf_exec *changes
+        pf_exec(*changes)
 
         (changes.size - 1)
       else

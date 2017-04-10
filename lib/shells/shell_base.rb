@@ -566,7 +566,7 @@ module Shells
     ##
     # Processes a debug message.
     def self.debug(msg) #:doc:
-      @debug_proc ||= instance_variable_defined?(:@on_debug) ? (instance_variable_get(:@on_debug) || ->(msg) { }) : ->(msg){  }
+      @debug_proc ||= instance_variable_defined?(:@on_debug) ? (instance_variable_get(:@on_debug) || ->(_) { }) : ->(_){  }
       @debug_proc.call(msg)
     end
 
