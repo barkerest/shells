@@ -6,6 +6,7 @@ module Shells
   # Provides a base interface for all shells to build on.
   #
   # Instantiating this class will raise an error.
+  # All shell sessions should inherit this class.
   class ShellBase
 
     ##
@@ -24,22 +25,26 @@ module Shells
     # Initializes the shell with the supplied options.
     #
     # These options are common to all shells.
-    #   :prompt
+    # +prompt+::
     #       Defaults to "~~#".  Most special characters will be stripped.
-    #   :retrieve_exit_code
+    # +retrieve_exit_code+::
     #       Defaults to false. Can also be true.
-    #   :on_non_zero_exit_code
+    # +on_non_zero_exit_code+::
     #       Defaults to :ignore. Can also be :raise.
-    #   :silence_timeout
+    # +silence_timeout+::
     #       Defaults to 0.
     #       If greater than zero, will raise an error after waiting this many seconds for a prompt.
-    #   :command_timeout
+    # +command_timeout+::
     #       Defaults to 0.
     #       If greater than zero, will raise an error after a command runs for this long without finishing.
     #
-    # Please check the documentation for specific shell options.
+    # Please check the documentation for each session class for specific shell options.
     #
-    # Once the shell is initialized, the shell is yielded to the provided code block.
+    # Once the shell is initialized, the shell is yielded to the provided code block which can then interact with
+    # the shell.  Once the code block completes, the shell is closed and the session object is returned.
+    #
+    # After completion the session object can only be used to review the +stdout+, +stderr+, and +combined_output+
+    # properties.  The +exec+ method and any other methods that interact with the shell will no longer be functional.
     def initialize(options = {}, &block)
 
       # cannot instantiate a ShellBase
@@ -99,6 +104,19 @@ module Shells
     #
     # This code would normally be used to navigate a menu or setup an environment.
     # This method allows you to define that behavior without rewriting the connection code.
+    #
+    #   before_init do |shell|
+    #     ...
+    #   end
+    #
+    # You can also pass the name of a static method.
+    #
+    #   def self.some_init_function(shell)
+    #     ...
+    #   end
+    #
+    #   before_init :some_init_function
+    #
     def self.before_init(proc = nil, &block)
       add_hook :before_init, proc, block
     end
@@ -108,6 +126,19 @@ module Shells
     #
     # This code might also be used to navigate a menu or clean up an environment.
     # This method allows you to define that behavior without rewriting the connection code.
+    #
+    #   before_term do |shell|
+    #     ...
+    #   end
+    #
+    # You can also pass the name of a static method.
+    #
+    #   def self.some_term_function(shell)
+    #     ...
+    #   end
+    #
+    #   before_term :some_term_function
+    #
     def self.before_term(proc = nil, &block)
       add_hook :before_term, proc, block
     end
@@ -117,12 +148,32 @@ module Shells
     #
     # This code will receive the shell as the first argument and the exception as the second.
     # If it handles the exception it should return true, otherwise nil or false.
+    #
+    #   on_exception do |shell, ex|
+    #     if ex.is_a?(MyExceptionType)
+    #       ...
+    #       true
+    #     else
+    #       false
+    #     end
+    #   end
+    #
+    # You can also pass the name of a static method.
+    #
+    #   def self.some_exception_handler(shell, ex)
+    #     ...
+    #   end
+    #
+    #   on_exception :some_exception_handler
+    #
     def self.on_exception(proc = nil, &block)
       add_hook :on_exception, proc, block
     end
 
     ##
     # Defines the line ending used to terminate commands sent to the shell.
+    #
+    # The default is "\n".  If you need "\r\n", "\r", or some other value, simply override this function.
     def line_ending
       "\n"
     end
@@ -179,10 +230,17 @@ module Shells
     # The +command+ is the command to execute in the shell.
     #
     # The +options+ can be used to override the exit code behavior.
-    #     :retrieve_exit_code    = :default or true or false
-    #     :on_non_zero_exit_code = :default or :ignore or :raise
-    #     :silence_timeout       = :default or seconds to wait in silence
-    #     :command_timeout       = :default or max seconds to wait for command to finish
+    # In all cases, the :default option is the same as not providing the option and will cause +exec+
+    # to inherit the option from the shell's options.
+    #
+    # +retrieve_exit_code+::
+    #       This can be one of :default, true, or false.
+    # +on_non_zero_exit_code+::
+    #       This can be on ot :default, :ignore, or :raise.
+    # +silence_timeout+::
+    #       This can be :default or the number of seconds to wait in silence before timing out.
+    # +command_timeout+::
+    #       This can be :default or the maximum number of seconds to wait for a command to finish before timing out.
     #
     # If provided, the +block+ is a chunk of code that will be processed every time the
     # shell receives output from the program.  If the block returns a string, the string
@@ -248,7 +306,7 @@ module Shells
     # Validates the options provided to the class.
     #
     # You should define this method in your subclass.
-    def validate_options
+    def validate_options #:doc:
       warn "The validate_options() method is not defined on the #{self.class} class."
     end
 
@@ -260,7 +318,7 @@ module Shells
     # When the yielded block returns this method should then disconnect from the shell.
     #
     # You must define this method in your subclass.
-    def exec_shell(&block)
+    def exec_shell(&block) #:doc:
       raise ::NotImplementedError
     end
 
@@ -270,7 +328,7 @@ module Shells
     # This method should initialize the shell prompt and then yield.
     #
     # You must define this method in your subclass.
-    def exec_prompt(&block)
+    def exec_prompt(&block) #:doc:
       raise ::NotImplementedError
     end
 
@@ -278,15 +336,19 @@ module Shells
     # Sends data to the shell.
     #
     # You must define this method in your subclass.
-    def send_data(data)
+    def send_data(data) #:doc:
       raise ::NotImplementedError
     end
 
     ##
     # Loops while the block returns any true value.
     #
+    # Inside the loop you should check for data being received from the shell and dispatch it to the appropriate
+    # hook method (see stdout_received() and stderr_received()).  Once input has been cleared you should execute
+    # the block and exit unless the block returns a true value.
+    #
     # You must define this method in your subclass.
-    def loop(&block)
+    def loop(&block) #:doc:
       raise ::NotImplementedError
     end
 
@@ -295,8 +357,8 @@ module Shells
     #
     # The block will be passed the data received.
     #
-    # You must define this method in your subclass.
-    def stdout_received(&block)
+    # You must define this method in your subclass and it should set a hook to be called when data is received.
+    def stdout_received(&block) #:doc:
       raise ::NotImplementedError
     end
 
@@ -305,8 +367,8 @@ module Shells
     #
     # The block will be passed the data received.
     #
-    # You must define this method in your subclass.
-    def stderr_received(&block)
+    # You must define this method in your subclass and it should set a hook to be called when data is received.
+    def stderr_received(&block) #:doc:
       raise ::NotImplementedError
     end
 
@@ -314,10 +376,9 @@ module Shells
     # Gets the exit code from the last command.
     #
     # You must define this method in your subclass to utilize exit codes.
-    def get_exit_code
+    def get_exit_code #:doc:
       raise ::NotImplementedError
     end
-
 
 
 
@@ -329,7 +390,10 @@ module Shells
     # This is automatically called in +exec+ so you would only need
     # to call it directly if you were sending data manually to the
     # shell.
-    def wait_for_prompt(silence_timeout = nil, command_timeout = nil)
+    #
+    # This method is used internally in the +exec+ method, but there may be legitimate use cases
+    # outside of that method as well.
+    def wait_for_prompt(silence_timeout = nil, command_timeout = nil) #:doc:
       raise Shells::SessionCompleted if session_complete?
 
       silence_timeout ||= options[:silence_timeout]
@@ -398,7 +462,10 @@ module Shells
     # If no block is provided, then the shell will simply log all output from the program.
     # If a block is provided, it will be passed the data as it is received.  If the block
     # returns a string, then that string will be sent to the shell.
-    def buffer_input(&block)
+    #
+    # This method is called internally in the +exec+ method, but there may be legitimate use
+    # cases outside of that method as well.
+    def buffer_input(&block) #:doc:
       raise Shells::SessionCompleted if session_complete?
       block ||= Proc.new { }
       stdout_received do |data|
@@ -413,7 +480,10 @@ module Shells
 
     ##
     # Pushes the buffers for output capture.
-    def push_buffer
+    #
+    # This method is called internally in the +exec+ method, but there may be legitimate use
+    # cases outside of that method as well.
+    def push_buffer #:doc:
       # push the buffer so we can get the output of a command.
       stdout_hist.push stdout
       stderr_hist.push stderr
@@ -425,7 +495,10 @@ module Shells
 
     ##
     # Pops the buffers and merges the captured output.
-    def pop_merge_buffer
+    #
+    # This method is called internally in the +exec+ method, but there may be legitimate use
+    # cases outside of that method as well.
+    def pop_merge_buffer #:doc:
       # almost a standard pop, however we want to merge history with current.
       if (hist = stdout_hist.pop)
         self.stdout = hist + stdout
@@ -440,6 +513,9 @@ module Shells
 
     ##
     # Pops the buffers and discards the captured output.
+    #
+    # This method is used internally in the +get_exit_code+ method, but there may be legitimate use
+    # cases outside of that method as well.
     def pop_discard_buffer
       # a standard pop discarding current data and retrieving the history.
       if (hist = stdout_hist.pop)

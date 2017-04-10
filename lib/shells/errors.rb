@@ -1,15 +1,21 @@
 module Shells
   ##
   # An error occurring within the SecureShell class aside from argument errors.
-  ShellError = Class.new(StandardError)
+  class ShellError < StandardError
+
+  end
 
   ##
   # An error raised when a provided option is invalid.
-  InvalidOption = Class.new(ShellError)
+  class InvalidOption < ShellError
+
+  end
 
   ##
   # An error raised when a command requiring a session is attempted after the session has been completed.
-  SessionCompleted = Class.new(ShellError)
+  class SessionCompleted < ShellError
+
+  end
 
   ##
   # An error raised when a command exits with a non-zero status.
@@ -31,15 +37,21 @@ module Shells
 
   ##
   # An error raised when a session is waiting for output for too long.
-  SilenceTimeout   = Class.new(ShellError)
+  class SilenceTimeout < ShellError
+
+  end
 
   ##
   # An error raise when a session is waiting for a command to finish for too long.
-  CommandTimeout    = Class.new(ShellError)
+  class CommandTimeout < ShellError
+
+  end
 
   ##
   # An error raised when the session fails to set the prompt in the shell.
-  FailedToSetPrompt = Class.new(Shells::ShellError)
+  class FailedToSetPrompt < ShellError
+
+  end
 
 
 end

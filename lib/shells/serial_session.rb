@@ -13,58 +13,58 @@ module Shells
   #
   #
   # Valid options:
-  # *   +path+
+  # +path+::
   #     The path to the serial device (e.g. - COM3 or /dev/tty2)
   #     This is a required option.
-  # *   +speed+
+  # +speed+::
   #     The bitrate for the connection.
   #     The default is 115200.
-  # *   +data_bits+
+  # +data_bits+::
   #     The number of data bits for the connection.
   #     The default is 8.
-  # *   +parity+
+  # +parity+::
   #     The parity for the connection.
   #     The default is :none.
-  # *   +prompt+
+  # +prompt+::
   #     The prompt used to determine when processes finish execution.
   #     Defaults to '~~#', but if that doesn't work for some reason because it is valid output from one or more
   #     commands, you can change it to something else.  It must be unique and cannot contain certain characters.
   #     The characters you should avoid are !, $, \, /, ", and ' because no attempt is made to escape them and the
   #     resulting prompt can very easily become something else entirely.  If they are provided, they will be
   #     replaced to protect the shell from getting stuck.
-  # *   +quit+
+  # +quit+::
   #     If set, this defines the command to execute when quitting the session.
   #     The default is "exit" which will probably work most of the time.
-  # *   +retrieve_exit_code+
+  # +retrieve_exit_code+::
   #     If set to a non-false value, then the default behavior will be to retrieve the exit code from the shell after
   #     executing a command.  If set to a false or nil value, the default behavior will be to ignore the exit code
   #     from the shell.  When retrieved, the exit code is stored in the +last_exit_code+ property.
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
-  # *   +on_non_zero_exit_code+
+  # +on_non_zero_exit_code+::
   #     If set to :ignore (the default) then non-zero exit codes will not cause errors.  You will still be able to check
   #     the +last_exit_code+ property to determine if the command was successful.
   #     If set to :raise then non-zero exit codes will cause a Shells::NonZeroExitCode to be raised when a command exits
   #     with a non-zero return value.
   #     This option only comes into play when +retrieve_exit_code+ is set to a non-false value.
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
-  # *   +silence_timeout+
+  # +silence_timeout+::
   #     When a command is executing, this is the maximum amount of time to wait for any feedback from the shell.
   #     If set to 0 (or less) there is no timeout.
   #     Unlike +command_timeout+ this value resets every time we receive feedback.
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
-  # *   +command_timeout+
+  # +command_timeout+::
   #     When a command is executing, this is the maximum amount of time to wait for the command to finish.
   #     If set to 0 (or less) there is no timeout.
   #     Unlike +silence_timeout+ this value does not reset when we receive feedback.
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
-  # *   +override_set_prompt+
+  # +override_set_prompt+::
   #     If provided, this must be set to either a command string that will set the prompt, or a Proc that accepts
   #     the shell as an argument.
   #     If set to a string, the string is sent to the shell and we wait up to two seconds for the prompt to appear.
   #     If that fails, we resend the string and wait one more time before failing.
   #     If set to a Proc, the Proc is called.  If the Proc returns a false value, we fail.  If the Proc returns
   #     a non-false value, we consider it successful.
-  # *   +override_get_exit_code+
+  # +override_get_exit_code+::
   #     If provided, this must be set to either a command string that will retrieve the exit code, or a Proc that
   #     accepts the shell as an argument.
   #     If set to a string, the string is sent to the shell and the output is parsed as an integer and used as the exit
@@ -82,13 +82,13 @@ module Shells
   #
   class SerialSession < Shells::ShellBase
 
-    def line_ending # :nodoc:
+    def line_ending #:nodoc:
       "\r\n"
     end
 
     protected
 
-    def validate_options
+    def validate_options #:nodoc:
       options[:speed] ||= 115200
       options[:data_bits] ||= 8
       options[:parity] ||= :none
@@ -98,7 +98,7 @@ module Shells
       raise InvalidOption, 'Missing path.' if options[:path].to_s.strip == ''
     end
 
-    def exec_shell(&block)
+    def exec_shell(&block) #:nodoc:
 
       @serport = Serial.new options[:path], options[:speed], options[:data_bits], options[:parity]
 
@@ -118,7 +118,7 @@ module Shells
       end
     end
 
-    def exec_prompt(&block)
+    def exec_prompt(&block) #:nodoc:
       cmd = options[:override_set_prompt] || "PS1=\"#{options[:prompt]}\""
       if cmd.respond_to?(:call)
         raise Shells::FailedToSetPrompt unless cmd.call(self)
@@ -139,12 +139,12 @@ module Shells
       block.call
     end
 
-    def send_data(data)
+    def send_data(data) #:nodoc:
       @serport.write data
       puts "I send #{data.inspect} to the serial device."
     end
 
-    def loop(&block)
+    def loop(&block) #:nodoc:
       while true
         while true
           data = @serport.read(256).to_s
@@ -156,15 +156,15 @@ module Shells
       end
     end
 
-    def stdout_received(&block)
+    def stdout_received(&block) #:nodoc:
       @_stdout_recv = block
     end
 
-    def stderr_received(&block)
+    def stderr_received(&block) #:nodoc:
       @_stderr_recv = block
     end
 
-    def get_exit_code
+    def get_exit_code #:nodoc:
       cmd = options[:override_get_exit_code] || 'echo $?'
       if cmd.respond_to?(:call)
         cmd.call(self)

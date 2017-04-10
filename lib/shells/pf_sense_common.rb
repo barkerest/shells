@@ -4,28 +4,39 @@ require 'json'
 module Shells
 
   ##
-  # An error raised when we fail to navigate the pfSense menu.
-  PfSenseMenuNavigationFailure = Class.new(Shells::ShellError)
-
-  ##
   # Common functionality for interacting with a pfSense device.
   module PfSenseCommon
 
     ##
-    # Signals that we want to restart the device.
-    RestartNow = Class.new(Exception)
+    # An error raised when we fail to navigate the pfSense menu.
+    class MenuNavigationFailure < Shells::ShellError
+
+    end
 
     ##
     # Failed to locate the public key.
-    PublicKeyNotFound = Class.new(Shells::ShellError)
+    class PublicKeyNotFound < Shells::ShellError
+
+    end
 
     ##
     # Failed to validate the public key.
-    PublicKeyInvalid = Class.new(Shells::ShellError)
+    class PublicKeyInvalid < Shells::ShellError
+
+    end
 
     ##
     # Failed to locate the user on the device.
-    UserNotFound = Class.new(Shells::ShellError)
+    class UserNotFound < Shells::ShellError
+
+    end
+
+    ##
+    # Signals that we want to restart the device.
+    class RestartNow < Exception
+
+    end
+
 
     ##
     # The base shell used when possible.
@@ -51,7 +62,7 @@ module Shells
       # When you will be facing the pfSense menu, you should call this before initializing the prompt.
       #   before_init :navigate_menu
       #
-      def navigate_menu(shell)
+      def navigate_menu(shell) #:doc:
 
         # Usually the option will be 8 that we want, however we want to parse the menu just to be sure.
         # So we'll start by pushing the buffer and then sending an invalid menu option sequence.
@@ -85,7 +96,7 @@ module Shells
             !(combined_output =~ temp_prompt)
           end
         else
-          raise Shells::PfSenseMenuNavigationFailure
+          raise Shells::PfSenseCommon::MenuNavigationFailure
         end
 
         # We have successfully navigated the menu.
@@ -98,7 +109,7 @@ module Shells
 
     end
 
-    def self.included(base)  # :nodoc:
+    def self.included(base)  #:nodoc:
       base.extend Shells::PfSenseCommon::ClassMethods
 
       # Trap the RestartNow exception.
@@ -106,7 +117,7 @@ module Shells
       # This requires rewriting the @options instance variable since the hash is frozen
       # after initial validation.
       base.on_exception do |shell, ex|
-        if ex.is_a?(RestartNow)
+        if ex.is_a?(Shells::PfSenseCommon::RestartNow)
           opt = shell.options.dup
           opt[:quit] = '/sbin/reboot'
           opt.freeze
@@ -119,7 +130,7 @@ module Shells
 
     end
 
-    def validate_options  # :nodoc:
+    def validate_options  #:nodoc:
       super
       options[:shell] = '/bin/sh'
       options[:prompt] = 'pfSense shell:'
@@ -128,12 +139,9 @@ module Shells
       options[:on_non_zero_exit_code] = :ignore
       options[:override_set_prompt] = ->(sh) { true }
       options[:override_get_exit_code] = ->(sh) { 0 }
-
-      raise InvalidOption, 'Missing host.' if options[:host].to_s.strip == ''
-      raise InvalidOption, 'Missing user.' if options[:user].to_s.strip == ''
     end
 
-    def exec_prompt(&block) # :nodoc:
+    def exec_prompt(&block) #:nodoc:
       exec '/usr/local/sbin/pfSsh.php', command_timeout: 5
       begin
         block.call
@@ -238,9 +246,9 @@ module Shells
         if File.exist?(public_key)
           public_key = File.read(public_key).to_s.strip
         else
-          raise PublicKeyNotFound
+          raise Shells::PfSenseCommon::PublicKeyNotFound
         end
-        raise PublicKeyInvalid unless public_key =~ cert_regex
+        raise Shells::PfSenseCommon::PublicKeyInvalid unless public_key =~ cert_regex
       end
 
       cfg = get_config_section 'system'
@@ -271,7 +279,7 @@ module Shells
       end
 
 
-      raise UserNotFound unless user_id
+      raise Shells::PfSenseCommon::UserNotFound unless user_id
 
       set_config_section 'system', cfg, "Enable certificate authentication for #{options[:user]}."
 
@@ -283,7 +291,7 @@ module Shells
     # Exits the shell session immediately and requests a reboot of the pfSense device.
     def reboot
       raise Shells::SessionCompleted if session_completed?
-      raise RestartNow
+      raise Shells::PfSenseCommon::RestartNow
     end
 
     ##
