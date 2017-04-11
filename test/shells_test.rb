@@ -3,8 +3,52 @@ require 'yaml'
 
 class ShellsTest < Minitest::Test #:nodoc: all
 
+  class TestError < Exception
+
+  end
+
+  def hook_test_class
+    Class.new(Shells::SshSession) do
+      on_debug { |msg| $stderr.puts msg }
+
+      attr_accessor :flags
+
+      def initialize(flags, options = {})
+        self.flags = flags
+        super options
+      end
+
+      before_init { |sh| sh.flags[:before_init_processed] = true; nil }
+      after_init { |sh| sh.flags[:after_init_processed] = true; nil }
+      before_term { |sh| sh.flags[:before_term_processed] = true; nil }
+      after_term { |sh| sh.flags[:after_term_processed] = true; nil }
+
+      def self.run(cfg)
+        flags = {
+            error_processed: false,
+            block_processed: false,
+            before_init_processed: false,
+            after_init_processed: false,
+            before_term_processed: false,
+            after_term_processed: false,
+        }
+        begin
+          new(flags, cfg) do
+            flags[:block_processed] = true
+            yield if block_given?
+          end
+        rescue TestError
+          flags[:error_processed] = true
+        end
+        flags
+      end
+
+    end
+  end
+
   def setup
     @cfg = YAML.load_file(File.expand_path('../config.yml', __FILE__))
+    @hook_test = hook_test_class
     Shells.constants.each do |const|
       const = Shells.const_get(const)
       if const.is_a?(Class) && Shells::ShellBase > const
@@ -12,6 +56,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
       end
     end
   end
+
 
   def test_basic_ssh_session
     log_header
@@ -49,6 +94,76 @@ class ShellsTest < Minitest::Test #:nodoc: all
       assert sh.last_exit_code == 42
 
     end
+  end
+
+  def test_error_in_code_block
+    log_header
+    flags = @hook_test.run(@cfg['ssh']) { raise TestError }
+
+    # The error was processed?
+    assert flags[:error_processed]
+
+    # all hooks should have run.
+    assert flags[:block_processed]
+    assert flags[:before_init_processed]
+    assert flags[:after_init_processed]
+    assert flags[:before_term_processed]
+    assert flags[:after_term_processed]
+
+  end
+
+  def test_error_in_before_term
+    log_header
+    @hook_test.before_term { raise TestError }
+    flags = @hook_test.run @cfg['ssh']
+
+    # The error was processed?
+    assert flags[:error_processed]
+
+    # all blocks should have run.
+    assert flags[:before_init_processed]
+    assert flags[:after_init_processed]
+    assert flags[:before_term_processed]
+    assert flags[:after_term_processed]
+    assert flags[:block_processed]
+
+  end
+
+  def test_error_in_after_init
+    log_header
+    @hook_test.after_init { raise TestError }
+    flags = @hook_test.run @cfg['ssh']
+
+    # The error was processed?
+    assert flags[:error_processed]
+
+    # block_processed should not be set.
+    assert !flags[:block_processed]
+
+    # everything else should have run.
+    assert flags[:before_init_processed]
+    assert flags[:after_init_processed]
+    assert flags[:before_term_processed]
+    assert flags[:after_term_processed]
+
+  end
+
+  def test_error_in_before_init
+    log_header
+    @hook_test.before_init { raise TestError }
+    flags = @hook_test.run @cfg['ssh']
+
+    # The error was processed?
+    assert flags[:error_processed]
+
+    # block_processed, after_init, and before_term should not be set.
+    assert !flags[:block_processed]
+    assert !flags[:after_init_processed]
+    assert !flags[:before_term_processed]
+
+    # everything else should have run.
+    assert flags[:before_init_processed]
+    assert flags[:after_term_processed]
   end
 
   def test_pf_sense_ssh

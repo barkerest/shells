@@ -88,9 +88,9 @@ module Shells
           run_hook :before_init
           debug 'Calling "exec_prompt"...'
           exec_prompt do
-            debug 'Running "after_init" hooks...'
-            run_hook :after_init
             begin
+              debug 'Running "after_init" hooks...'
+              run_hook :after_init
               debug 'Executing code block...'
               block.call self
             ensure
@@ -155,7 +155,7 @@ module Shells
     #   before_init :some_init_function
     #
     def self.before_init(proc = nil, &block)
-      add_hook :before_init, proc, block
+      add_hook :before_init, proc, &block
     end
 
     ##
@@ -174,7 +174,7 @@ module Shells
     #   after_init :some_init_function
     #
     def self.after_init(proc = nil, &block)
-      add_hook :after_init, proc, block
+      add_hook :after_init, proc, &block
     end
 
 
@@ -200,7 +200,7 @@ module Shells
     #   before_term :some_term_function
     #
     def self.before_term(proc = nil, &block)
-      add_hook :before_term, proc, block
+      add_hook :before_term, proc, &block
     end
 
     ##
@@ -226,7 +226,7 @@ module Shells
     #   after_term :some_term_function
     #
     def self.after_term(proc = nil, &block)
-      add_hook :after_term, proc, block
+      add_hook :after_term, proc, &block
     end
 
 
@@ -254,7 +254,7 @@ module Shells
     #   on_exception :some_exception_handler
     #
     def self.on_exception(proc = nil, &block)
-      add_hook :on_exception, proc, block
+      add_hook :on_exception, proc, &block
     end
 
     ##
@@ -683,8 +683,9 @@ module Shells
     private
 
 
-    def self.add_hook(hook_name, proc, block)
+    def self.add_hook(hook_name, proc, &block)
       hooks[hook_name] ||= []
+
       if proc.respond_to?(:call)
         hooks[hook_name] << proc
       elsif proc.is_a?(Symbol) || proc.is_a?(String)
@@ -695,7 +696,7 @@ module Shells
         raise ArgumentError, 'proc must respond to :call method or be the name of a static method in this class'
       end
 
-      if block.respond_to?(:call)
+      if block
         hooks[hook_name] << block
       end
 

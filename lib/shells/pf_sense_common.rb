@@ -1,5 +1,6 @@
 require 'base64'
 require 'json'
+require 'byebug'
 
 module Shells
 
@@ -98,14 +99,22 @@ module Shells
     def exec_shell(&block) #:nodoc:
       super do
         # We want to drop to the shell before executing the block.
-        menu_option = get_menu_option 'Shell'
-        shell_regex = /\[(?<VER>[^\]]*)\]\[(?<USERHOST>[^\]]*)\](?<CD>\/.*):\s*$/
+        # So we'll navigate the menu to get the option for the shell.
+        # For this first navigation we allow a delay only if we are not connected to a serial device.
+        # Serial connections are always on, so they don't need to initialize first.
+        menu_option = get_menu_option 'Shell', !(Shells::SerialSession > self.class)
         raise MenuNavigationFailure unless menu_option
+
         # For 2.3 and 2.4 this is a valid match.
         # If future versions change the default prompt, we need to change our process.
         # [VERSION][USER@HOSTNAME]/root:  where /root is the current dir.
+        shell_regex = /\[(?<VER>[^\]]*)\]\[(?<USERHOST>[^\]]*)\](?<CD>\/.*):\s*$/
+
+        # Now we execute the menu option and wait for the shell_regex to match.
         temporary_prompt(shell_regex) do
           exec menu_option.to_s, command_timeout: 5
+
+          # Once we have a match we should be able to repeat it and store the information from the shell.
           data = prompt_match.match(combined_output)
           self.pf_sense_version = data['VER']
           self.pf_sense_user, _, self.pf_sense_host = data['USERHOST'].partition('@')
@@ -113,9 +122,11 @@ module Shells
 
         block.call
 
+        # Wait for the shell_regex to match again.
+        temporary_prompt(shell_regex) { wait_for_prompt nil, 4, false }
+
         # Exit the shell to return to the menu.
         send_data 'exit' + line_ending
-        sleep 1
 
         # After the block we want to know what the Logout option is and we change the quit command to match.
         menu_option = get_menu_option 'Logout'
@@ -337,15 +348,17 @@ module Shells
 
 
     # Processes the pfSense console menu to determine the option to send.
-    def get_menu_option(option_text)
+    def get_menu_option(option_text, delay = true)
       option_regex = /\s(\d+)\)\s*#{option_text}\s/i
       prompt_text = 'Enter an option:'
 
       temporary_prompt prompt_text do
         begin
 
-          # give the prompt a few seconds unless we're running on a serial port.
-          wait_for_prompt(nil, 3, false) unless Shells::SerialSession > self.class
+          # give the prompt a few seconds to draw.
+          if delay
+            wait_for_prompt(nil, 4, false)
+          end
 
           # See if we have a menu already.
           menu_regex = /(?<MENU>\s0\)(?:.|\r|\n(?!\s0\)))*)#{prompt_text}[ \t]*$/
@@ -354,7 +367,7 @@ module Shells
 
           push_buffer
 
-          unless menu
+          if menu.nil?
             # We want to redraw the menu.
             # In order to do that, we need to send a command that is not valid.
             # A blank line equates to a zero, which is (probably) the logout option.
@@ -367,12 +380,7 @@ module Shells
               # This time we will raise an error.
               menu = exec('exit', command_timeout: 5)
             end
-
-            # FIXME: This should not cause an error to occur.
-            # make sure it is the menu we expect.
-            #menu = menu_regex.match(menu)['MENU']
           end
-
 
           # Ok, so now we have our menu options.
           debug "Locating 'XX) #{option_text}' menu option..."
