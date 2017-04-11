@@ -13,12 +13,9 @@ module Shells
         raise ArgumentError, "use_method (#{use_method.inspect}) is not a valid method." unless file_methods.include?(use_method)
         raise Shells::ShellErro, "The #{use_method} binary is not available with this shell." unless which(use_method)
         send "read_file_#{use_method}", path
+      elsif default_file_method
+        return send "read_file_#{default_file_method}", path
       else
-        file_methods.each do |method|
-          if which(method)
-            return send "read_file_#{method}", path
-          end
-        end
         raise Shells::ShellError, 'No supported binary to encode/decode files.'
       end
     end
@@ -31,12 +28,9 @@ module Shells
         raise ArgumentError, "use_method (#{use_method.inspect}) is not a valid method." unless file_methods.include?(use_method)
         raise Shells::ShellErro, "The #{use_method} binary is not available with this shell." unless which(use_method)
         send "write_file_#{use_method}", path, data
+      elsif default_file_method
+        return send "write_file_#{default_file_method}", path, data
       else
-        file_methods.each do |method|
-          if which(method)
-            return send "write_file_#{method}", path, data
-          end
-        end
         raise Shells::ShellError, 'No supported binary to encode/decode files.'
       end
     end
@@ -80,8 +74,18 @@ module Shells
       ]
     end
 
+    def default_file_method
+      # Find the first method that should work.
+      unless instance_variable_defined?(:@default_file_method)
+        @default_file_method = file_methods.find { |meth| which(meth) }
+      end
+      @default_file_method
+    end
+
     def with_b64_file(path, data, &block)
       data = Base64.encode64(data)
+
+      max_cmd_length = 2048
 
       # Send 1 line at a time (this will be SLOW for large files).
       lines = data.gsub("\r\n", "\n").split("\n")
@@ -101,20 +105,21 @@ module Shells
 
       # Create/overwrite file with the first line.
       first_line = lines.delete_at 0
-      exec "echo -n #{first_line} > #{b64path.inspect}"
+      exec "echo #{first_line} > #{b64path.inspect}"
 
-      # Write remaining blocks.
-      # We'll try to speed up by sending multiple commands at a time.
+      # Create a queue.
       cmds = []
       lines.each do |line|
-        cmds << "echo -n #{line} >> #{b64path.inspect}"
-        if cmds.length >= 20
-          exec cmds.join(' && ')
-          cmds.clear
-        end
+        cmds << "echo #{line} >> #{b64path.inspect}"
       end
-      if cmds.any?
-        exec cmds.join(' && ')
+
+      # Process the queue sending as many at a time as possible.
+      while cmds.any?
+        cmd = cmds.delete(cmds.first)
+        while cmds.any? && cmd.length + cmds.first.length + 4 <= max_cmd_length
+          cmd += ' && ' + cmds.delete(cmds.first)
+        end
+        exec cmd
       end
 
       ret = block.call(b64path)
@@ -149,13 +154,13 @@ module Shells
     end
 
     def read_file_openssl(path)
-      data = exec "openssl base64 < #{path.inspect}"
+      data = exec "openssl base64 < #{path.inspect}", retrieve_exit_code: true, on_non_zero_exit_code: :ignore, command_timeout: 30
       return nil if last_exit_code != 0
       Base64.decode64 data
     end
 
     def read_file_perl(path)
-      data = exec "perl -MMIME::Base64 -ne 'print encode_base64($_)' < #{path.inspect}"
+      data = exec "perl -MMIME::Base64 -ne 'print encode_base64($_)' < #{path.inspect}", retrieve_exit_code: true, on_non_zero_exit_code: :ignore, command_timeout: 30
       return nil if last_exit_code != 0
       Base64.decode64 data
     end
