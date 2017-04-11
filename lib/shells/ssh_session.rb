@@ -126,21 +126,23 @@ module Shells
         ) do |ssh|
 
           # open the channel
+          debug 'Opening channel...'
           ssh.open_channel do |ch|
             # request a PTY
+            debug 'Requesting PTY...'
             ch.request_pty do |ch_pty, success_pty|
               raise FailedToRequestPty unless success_pty
 
               # pick a method to start the shell with.
               meth = (options[:shell] == :shell) ? :send_channel_request : :exec
 
+              @channel = ch_pty
+              buffer_input
+
               # start the shell
+              debug 'Starting shell...'
               ch_pty.send(meth, options[:shell].to_s) do |ch_sh, success_sh|
                 raise FailedToStartShell unless success_sh
-
-                @channel = ch_sh
-
-                buffer_input
 
                 # give the shell a chance to get ready.
                 sleep 0.25
@@ -152,6 +154,7 @@ module Shells
                 ensure
                   # send the exit command.
                   ignore_io_error = true
+                  debug 'Closing connection...'
                   send_data options[:quit] + line_ending
                 end
 
@@ -159,6 +162,10 @@ module Shells
               end
 
             end
+
+            debug 'Waiting for channel to close...'
+            ch.wait
+            debug 'Channel has been closed.'
           end
 
         end

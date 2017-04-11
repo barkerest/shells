@@ -108,6 +108,7 @@ module Shells
 
     def exec_shell(&block) #:nodoc:
 
+      debug 'Opening serial port...'
       @serport = Serial.new options[:path], options[:speed], options[:data_bits], options[:parity]
 
       begin
@@ -121,6 +122,7 @@ module Shells
         # send the quit message.
         send_data options[:quit] + line_ending
 
+        debug 'Closing serial port...'
         @serport.close
         @serport = nil
       end

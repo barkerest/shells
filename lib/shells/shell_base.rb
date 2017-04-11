@@ -88,11 +88,16 @@ module Shells
           run_hook :before_init
           debug 'Calling "exec_prompt"...'
           exec_prompt do
-            debug 'Executing code block...'
-            block.call self
+            debug 'Running "after_init" hooks...'
+            run_hook :after_init
+            begin
+              debug 'Executing code block...'
+              block.call self
+            ensure
+              debug 'Running "before_term" hooks...'
+              run_hook :before_term
+            end
           end
-          debug 'Running "before_term" hooks...'
-          run_hook :before_term
         rescue QuitNow
           debug 'Received QuitNow signal.'
           nil
@@ -100,6 +105,9 @@ module Shells
           unless run_hook(:on_exception, ex)
             raise
           end
+        ensure
+          debug 'Running "after_term" hooks...'
+          run_hook :after_term
         end
       end
 
@@ -151,10 +159,33 @@ module Shells
     end
 
     ##
-    # Adds code to be run before the shell is terminated.
+    # Adds code to be run after the shell is fully initialized but before the session code executes.
+    #
+    #   after_init do |shell|
+    #     ...
+    #   end
+    #
+    # You can also pass the name of a static method.
+    #
+    #   def self.some_init_function(shell)
+    #     ...
+    #   end
+    #
+    #   after_init :some_init_function
+    #
+    def self.after_init(proc = nil, &block)
+      add_hook :after_init, proc, block
+    end
+
+
+    ##
+    # Adds code to be run before the shell is terminated immediately after executing the session code.
     #
     # This code might also be used to navigate a menu or clean up an environment.
     # This method allows you to define that behavior without rewriting the connection code.
+    #
+    # This code is guaranteed to be called if the shell initializes correctly.
+    # That means if an error is raised in the session code, this will still fire before handling the error.
     #
     #   before_term do |shell|
     #     ...
@@ -171,6 +202,33 @@ module Shells
     def self.before_term(proc = nil, &block)
       add_hook :before_term, proc, block
     end
+
+    ##
+    # Adds code to be run after the shell session is terminated but before closing the shell session.
+    #
+    # This code might also be used to navigate a menu or clean up an environment.
+    # This method allows you to define that behavior without rewriting the connection code.
+    #
+    # This code is guaranteed to be called if the shell connects correctly.
+    # That means if an error is raised in the session code or shell initialization code, this will still fire before
+    # closing the shell session.
+    #
+    #   after_term do |shell|
+    #     ...
+    #   end
+    #
+    # You can also pass the name of a static method.
+    #
+    #   def self.some_term_function(shell)
+    #     ...
+    #   end
+    #
+    #   after_term :some_term_function
+    #
+    def self.after_term(proc = nil, &block)
+      add_hook :after_term, proc, block
+    end
+
 
     ##
     # Adds code to be run when an exception occurs.
@@ -285,45 +343,54 @@ module Shells
       raise Shells::SessionCompleted if session_complete?
 
       options ||= {}
+      options = { timeout_error: true }.merge(options)
       options = self.options.merge(options.inject({}) { |m,(k,v)| m[k.to_sym] = v; m })
       options[:retrieve_exit_code] = self.options[:retrieve_exit_code] if options[:retrieve_exit_code] == :default
       options[:on_non_zero_exit_code] = self.options[:on_non_zero_exit_code] unless options[:on_non_zero_exit_code] == :default
       options[:silence_timeout] = self.options[:silence_timeout] if options[:silence_timeout] == :default
       options[:command_timeout] = self.options[:command_timeout] if options[:command_timeout] == :default
+      ret = ''
 
-      push_buffer # store the current buffer and start a fresh buffer
+      begin
+        push_buffer # store the current buffer and start a fresh buffer
 
-      # buffer while also passing data to the supplied block.
-      if block_given?
-        buffer_input(&block)
-      end
-
-      # send the command and wait for the prompt to return.
-      debug 'Sending command: ' + command
-      send_data command + line_ending
-      wait_for_prompt options[:silence_timeout], options[:command_timeout]
-
-      # return buffering to normal.
-      if block_given?
-        buffer_input
-      end
-
-      # get the output of the command, minus the trailing prompt.
-      debug 'Reading output of command...'
-      ret = command_output command
-
-      # restore the original buffer and merge the output from the command.
-      pop_merge_buffer
-
-      if options[:retrieve_exit_code]
-        self.last_exit_code = get_exit_code
-        if options[:on_non_zero_exit_code] == :raise
-          raise NonZeroExitCode.new(last_exit_code) unless last_exit_code == 0
+        # buffer while also passing data to the supplied block.
+        if block_given?
+          buffer_input(&block)
         end
-      else
-        self.last_exit_code = nil
-      end
 
+        # send the command and wait for the prompt to return.
+        debug 'Sending command: ' + command
+        send_data command + line_ending
+        if wait_for_prompt(options[:silence_timeout], options[:command_timeout], options[:timeout_error])
+          # get the output of the command, minus the trailing prompt.
+          debug 'Reading output of command...'
+          ret = command_output command
+
+          if options[:retrieve_exit_code]
+            self.last_exit_code = get_exit_code
+            if options[:on_non_zero_exit_code] == :raise
+              raise NonZeroExitCode.new(last_exit_code) unless last_exit_code == 0
+            end
+          else
+            self.last_exit_code = nil
+          end
+        else
+          # A timeout occurred and timeout_error was set to false.
+          debug 'Command timed out...'
+          self.last_exit_code = :timeout
+          ret = combined_output
+        end
+
+      ensure
+        # return buffering to normal.
+        if block_given?
+          buffer_input
+        end
+
+        # restore the original buffer and merge the output from the command.
+        pop_merge_buffer
+      end
       ret
     end
 
@@ -424,7 +491,7 @@ module Shells
     #
     # This method is used internally in the +exec+ method, but there may be legitimate use cases
     # outside of that method as well.
-    def wait_for_prompt(silence_timeout = nil, command_timeout = nil) #:doc:
+    def wait_for_prompt(silence_timeout = nil, command_timeout = nil, timeout_error = true) #:doc:
       raise Shells::SessionCompleted if session_complete?
 
       silence_timeout ||= options[:silence_timeout]
@@ -456,7 +523,8 @@ module Shells
 
           # Have we previously nudged the shell?
           if sent_nl_times > 2
-            raise Shells::SilenceTimeout
+            raise Shells::SilenceTimeout if timeout_error
+            return false
           else
             sent_nl_times = (sent_nl_at.nil? || sent_nl_at < last_input) ? 1 : (sent_nl_times + 1)
             sent_nl_at = Time.now
@@ -469,7 +537,8 @@ module Shells
         end
 
         if timeout && Time.now > timeout
-          raise Shells::CommandTimeout
+          raise Shells::CommandTimeout if timeout_error
+          return false
         end
 
         !(combined_output =~ prompt_match)
@@ -485,6 +554,7 @@ module Shells
         self.stdout <<= "\n"
       end
 
+      true
     end
 
     ##
@@ -515,6 +585,7 @@ module Shells
     # This method is called internally in the +exec+ method, but there may be legitimate use
     # cases outside of that method as well.
     def push_buffer #:doc:
+      raise Shells::SessionCompleted if session_complete?
       # push the buffer so we can get the output of a command.
       debug 'Pushing buffer >>'
       stdout_hist.push stdout
@@ -531,6 +602,7 @@ module Shells
     # This method is called internally in the +exec+ method, but there may be legitimate use
     # cases outside of that method as well.
     def pop_merge_buffer #:doc:
+      raise Shells::SessionCompleted if session_complete?
       # almost a standard pop, however we want to merge history with current.
       debug 'Merging buffer <<'
       if (hist = stdout_hist.pop)
@@ -550,6 +622,7 @@ module Shells
     # This method is used internally in the +get_exit_code+ method, but there may be legitimate use
     # cases outside of that method as well.
     def pop_discard_buffer #:doc:
+      raise Shells::SessionCompleted if session_complete?
       # a standard pop discarding current data and retrieving the history.
       debug 'Discarding buffer <<'
       if (hist = stdout_hist.pop)
@@ -575,6 +648,37 @@ module Shells
     def debug(msg) #:nodoc:
       self.class.debug msg
     end
+
+    ##
+    # Sets the prompt to the value temporarily for execution of the code block.
+    #
+    # The prompt is automatically reset after completion or failure of the code block.
+    #
+    # If no code block is provided this essentially only resets the prompt.
+    def temporary_prompt(prompt)
+      raise Shells::SessionCompleted if session_complete?
+      begin
+        @prompt_match = prompt.is_a?(Regexp) ? prompt : /#{prompt}[ \t]*$/
+
+        yield if block_given?
+      ensure
+        @prompt_match = nil
+      end
+    end
+
+    ##
+    # Allows you to change the :quit option inside of a session.
+    #
+    # This is useful if you need to change the quit command for some reason.
+    # e.g. - Changing the command to "reboot".
+    def change_quit(quit_command)
+      raise Shells::SessionCompleted if session_complete?
+      opts = options.dup
+      opts[:quit] = quit_command
+      opts.freeze
+      @options = opts
+    end
+
 
     private
 
