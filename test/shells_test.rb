@@ -96,6 +96,44 @@ class ShellsTest < Minitest::Test #:nodoc: all
     end
   end
 
+  def test_read_write_file
+    log_header
+    Shells::SshSession(@cfg['ssh'].merge(
+        retrieve_exit_code: false,
+        on_non_zero_exit_code: :ignore,
+        command_timeout: 5
+    )) do |sh|
+
+      [
+          # First something simple that easily should fit into a single transfer block.
+          'Hello World!\nThis is a test file.',
+          # Then a fairly long file with 300 lines in it that should require several transfer blocks.
+          'Hello World!!!\nThis is a test file.\n' + ((3..300).to_a.map{|i| "This is line #{i}."}).join("\n"),
+          # And one that has binary data.
+          (0..8000).to_a.pack('S*')
+      ].each_with_index do |data,idx|
+        # Write the file
+        code = sh.write_file 'my_test_file', data
+        assert code == 0, "Bad exit code for writing on data #{idx}"
+
+        # my_test_file should exist.
+        assert sh.exec_for_code('[ -f my_test_file ]') == 0, "my_test_file does not exist for data #{idx}"
+        # my_test_file.b64 should not exist.
+        assert sh.exec_for_code('[ -f my_test_file.b64 ]') != 0, "my_test_file.b64 does exist for data #{idx}"
+        # the size of the file should match the size of data.
+        assert_equal data.size, sh.exec('stat -c%s my_test_file').strip.to_i, "my_test_file size mismatch for data #{idx}"
+
+        # read the file and verify the contents.
+        test_data = sh.read_file 'my_test_file'
+        assert_equal data, test_data, "my_test_file content mismatch for data #{idx}"
+
+        # clean up.
+        exec 'rm my_test_file'
+        assert sh.exec_for_code('[ -f my_test_file ]') != 0, "Failed to remove my_test_file for data #{idx}"
+      end
+    end
+  end
+
   def test_error_in_code_block
     log_header
     flags = @hook_test.run(@cfg['ssh']) { raise TestError }

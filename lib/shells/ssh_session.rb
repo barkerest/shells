@@ -1,5 +1,6 @@
 require 'net/ssh'
 require 'shells/shell_base'
+require 'shells/bash_common'
 
 module Shells
   ##
@@ -84,6 +85,8 @@ module Shells
   #   end
   #
   class SshSession < Shells::ShellBase
+
+    include Shells::BashCommon
 
     ##
     # The error raised when we failed to request a PTY.
@@ -222,22 +225,6 @@ module Shells
           debug "Received: (#{data.size} bytes) [E] #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
           block.call data
         end
-      end
-    end
-
-    def get_exit_code #:nodoc:
-      cmd = options[:override_get_exit_code] || 'echo $?'
-      if cmd.respond_to?(:call)
-        cmd.call(self)
-      else
-        debug 'Retrieving exit code from last command...'
-        push_buffer
-        send_data cmd + line_ending
-        wait_for_prompt nil, 1
-        ret = command_output(cmd).strip.to_i
-        pop_discard_buffer
-        debug 'Exit code: ' + ret.to_s
-        ret
       end
     end
 

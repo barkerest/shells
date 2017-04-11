@@ -394,9 +394,30 @@ module Shells
       ret
     end
 
+    ##
+    # Executes a command specifically for the exit code.
+    #
+    # Does not return the output of the command, only the exit code.
+    def exec_for_code(command, options = {}, &block)
+      options = (options || {}).merge(retrieve_exit_code: true, on_non_zero_exit_code: :ignore)
+      exec command, options, &block
+      last_exit_code
+    end
+
+    ##
+    # Reads from a file on the device.
+    def read_file(path)
+      raise ::NotImplementedError
+    end
+
+    ##
+    # Writes to a file on the device.
+    def write_file(path, data)
+      raise ::NotImplementedError
+    end
+
 
     protected
-
 
 
 

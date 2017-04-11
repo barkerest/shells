@@ -1,5 +1,6 @@
 require 'rubyserial'
 require 'shells/shell_base'
+require 'shells/bash_common'
 
 module Shells
   ##
@@ -81,6 +82,8 @@ module Shells
   #   end
   #
   class SerialSession < Shells::ShellBase
+
+    include BashCommon
 
     ##
     # Sets the line ending for the instance.
@@ -175,22 +178,6 @@ module Shells
 
     def stderr_received(&block) #:nodoc:
       @_stderr_recv = block
-    end
-
-    def get_exit_code #:nodoc:
-      cmd = options[:override_get_exit_code] || 'echo $?'
-      if cmd.respond_to?(:call)
-        cmd.call(self)
-      else
-        debug 'Retrieving exit code from last command...'
-        push_buffer
-        send_data cmd + line_ending
-        wait_for_prompt nil, 1
-        ret = command_output(cmd).strip.to_i
-        pop_discard_buffer
-        debug 'Exit code: ' + ret.to_s
-        ret
-      end
     end
 
   end
