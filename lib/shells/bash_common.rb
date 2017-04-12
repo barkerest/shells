@@ -11,7 +11,7 @@ module Shells
       if use_method
         use_method = use_method.to_sym
         raise ArgumentError, "use_method (#{use_method.inspect}) is not a valid method." unless file_methods.include?(use_method)
-        raise Shells::ShellErro, "The #{use_method} binary is not available with this shell." unless which(use_method)
+        raise Shells::ShellError, "The #{use_method} binary is not available with this shell." unless which(use_method)
         send "read_file_#{use_method}", path
       elsif default_file_method
         return send "read_file_#{default_file_method}", path
@@ -26,7 +26,7 @@ module Shells
       if use_method
         use_method = use_method.to_sym
         raise ArgumentError, "use_method (#{use_method.inspect}) is not a valid method." unless file_methods.include?(use_method)
-        raise Shells::ShellErro, "The #{use_method} binary is not available with this shell." unless which(use_method)
+        raise Shells::ShellError, "The #{use_method} binary is not available with this shell." unless which(use_method)
         send "write_file_#{use_method}", path, data
       elsif default_file_method
         return send "write_file_#{default_file_method}", path, data
