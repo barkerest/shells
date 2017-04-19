@@ -60,6 +60,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_basic_ssh_session
     log_header
+    skip if @cfg['ssh'].empty?
     session = Shells::SshSession(@cfg['ssh'].merge(
         retrieve_exit_code: false,
         on_non_zero_exit_code: :ignore,
@@ -80,6 +81,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_exit_codes
     log_header
+    skip if @cfg['ssh'].empty?
     Shells::SshSession(@cfg['ssh'].merge(
         retrieve_exit_code: true,
         on_non_zero_exit_code: :ignore,
@@ -98,6 +100,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_read_write_file
     log_header
+    skip if @cfg['ssh'].empty?
     Shells::SshSession(@cfg['ssh'].merge(
         retrieve_exit_code: false,
         on_non_zero_exit_code: :ignore,
@@ -134,6 +137,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_error_in_code_block
     log_header
+    skip if @cfg['ssh'].empty?
     flags = @hook_test.run(@cfg['ssh']) { raise TestError }
 
     # The error was processed?
@@ -150,6 +154,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_error_in_before_term
     log_header
+    skip if @cfg['ssh'].empty?
     @hook_test.before_term { raise TestError }
     flags = @hook_test.run @cfg['ssh']
 
@@ -167,6 +172,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_error_in_after_init
     log_header
+    skip if @cfg['ssh'].empty?
     @hook_test.after_init { raise TestError }
     flags = @hook_test.run @cfg['ssh']
 
@@ -186,6 +192,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_error_in_before_init
     log_header
+    skip if @cfg['ssh'].empty?
     @hook_test.before_init { raise TestError }
     flags = @hook_test.run @cfg['ssh']
 
@@ -204,6 +211,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_pf_sense_ssh
     log_header
+    skip if @cfg['pf_sense_ssh'].empty?
     Shells::PfSenseSshSession(@cfg['pf_sense_ssh'].merge(
         command_timeout: 5
     )) do |sh|
@@ -214,6 +222,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
 
   def test_pf_sense_serial
     log_header
+    skip if @cfg['pf_sense_serial'].empty?
     Shells::PfSenseSerialSession(@cfg['pf_sense_serial'].merge(
         command_timeout: 5
     )) do |sh|
