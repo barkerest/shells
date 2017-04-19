@@ -283,14 +283,14 @@ module Shells
     ##
     # Exits the shell session immediately and requests a reboot of the pfSense device.
     def reboot
-      raise Shells::SessionCompleted if session_completed?
+      raise Shells::SessionCompleted if session_complete?
       raise Shells::PfSenseCommon::RestartNow
     end
 
     ##
     # Exits the shell session immediately.
     def quit
-      raise Shells::SessionCompleted if session_completed?
+      raise Shells::SessionCompleted if session_complete?
       raise Shells::ShellBase::QuitNow
     end
 
