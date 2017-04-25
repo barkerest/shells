@@ -22,7 +22,8 @@ module Shells
   #     The user to login with.  This option is required.
   # +password+::
   #     The password to login with.
-  #     If our public key is an authorized key on the host, the password is ignored.
+  #     If our public key is an authorized key on the host, the password is ignored for connection.
+  #     The #sudo_exec method for bash-like shells will also use this password for elevation.
   # +prompt+::
   #     The prompt used to determine when processes finish execution.
   #     Defaults to '~~#', but if that doesn't work for some reason because it is valid output from one or more

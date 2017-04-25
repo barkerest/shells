@@ -404,6 +404,7 @@ module Shells
       last_exit_code
     end
 
+
     ##
     # Reads from a file on the device.
     def read_file(path)
