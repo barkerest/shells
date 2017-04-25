@@ -346,7 +346,7 @@ module Shells
       options = { timeout_error: true }.merge(options)
       options = self.options.merge(options.inject({}) { |m,(k,v)| m[k.to_sym] = v; m })
       options[:retrieve_exit_code] = self.options[:retrieve_exit_code] if options[:retrieve_exit_code] == :default
-      options[:on_non_zero_exit_code] = self.options[:on_non_zero_exit_code] unless options[:on_non_zero_exit_code] == :default
+      options[:on_non_zero_exit_code] = self.options[:on_non_zero_exit_code] if options[:on_non_zero_exit_code] == :default
       options[:silence_timeout] = self.options[:silence_timeout] if options[:silence_timeout] == :default
       options[:command_timeout] = self.options[:command_timeout] if options[:command_timeout] == :default
       ret = ''
