@@ -39,8 +39,8 @@ module Shells
     # Executes an elevated command using the 'sudo' command.
     def sudo_exec(command, options = {}, &block)
       sudo_prompt = '[sp:'
-      sudo_match = /[\r\n]\[sp:$/
-      sudo_strip = /\[sp:[^\n]*\n/
+      sudo_match = /\n\[sp:$/m
+      sudo_strip = /\[sp:[^\n]*\n/m
       ret = exec("sudo -p \"#{sudo_prompt}\" bash -c \"#{command.gsub('"', '\\"')}\"", options) do |data,type|
         test_data = data.to_s
         desired_length = sudo_prompt.length + 1 # prefix a NL before the prompt.
@@ -51,7 +51,7 @@ module Shells
         end
 
         if test_data =~ sudo_match
-          options[:password]
+          self.options[:password]
         else
           if block
             block.call(data, type)
