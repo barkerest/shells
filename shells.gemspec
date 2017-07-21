@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
   spec.email         = ['beau@barkerest.com']
 
   spec.summary       = 'A set of simple shells for interacting with other devices.'
-  spec.homepage      = 'http://www.barkerest.com/'
+  spec.homepage      = 'https://github.com/barkerest/shells'
   spec.license       = 'MIT'
 
   spec.files         = `git ls-files -z`.split("\x0").reject do |f|
