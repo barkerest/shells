@@ -131,7 +131,7 @@ module Shells
 
           # open the channel
           debug 'Opening channel...'
-          ssh.open_channel do |ch|
+          @channel = ssh.open_channel do |ch|
             # request a PTY
             debug 'Requesting PTY...'
             ch.request_pty do |ch_pty, success_pty|
@@ -140,7 +140,6 @@ module Shells
               # pick a method to start the shell with.
               meth = (options[:shell] == :shell) ? :send_channel_request : :exec
 
-              @channel = ch_pty
               buffer_input
 
               # start the shell
@@ -161,16 +160,13 @@ module Shells
                   debug 'Closing connection...'
                   send_data options[:quit] + line_ending
                 end
-
-                @channel.wait
               end
-
             end
-
-            debug 'Waiting for channel to close...'
-            ch.wait
-            debug 'Channel has been closed.'
           end
+
+          debug 'Waiting for channel to close...'
+          @channel.wait
+          debug 'Channel has been closed.'
 
         end
       rescue IOError

@@ -80,7 +80,7 @@ module Shells
         debug 'Retrieving exit code from last command...'
         push_buffer
         send_data cmd + line_ending
-        wait_for_prompt nil, 1
+        wait_for_prompt 1, 2
         ret = command_output(cmd).strip.to_i
         pop_discard_buffer
         debug 'Exit code: ' + ret.to_s
