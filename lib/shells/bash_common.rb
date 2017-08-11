@@ -64,6 +64,25 @@ module Shells
       ret.gsub(sudo_strip, '')
     end
 
+    ##
+    # Executes a command specifically for the exit code.
+    #
+    # Does not return the output of the command, only the exit code.
+    def sudo_exec_for_code(command, options = {}, &block)
+      options = (options || {}).merge(retrieve_exit_code: true, on_non_zero_exit_code: :ignore)
+      sudo_exec command, options, &block
+      last_exit_code
+    end
+
+    ##
+    # Executes a command ignoring any exit code.
+    #
+    # Returns the output of the command and does not even retrieve the exit code.
+    def sudo_exec_ignore_code(command, options = {}, &block)
+      options = (options || {}).merge(retrieve_exit_code: false, on_non_zero_exit_code: :ignore)
+      sudo_exec command, options, &block
+    end
+    
 
     protected
 

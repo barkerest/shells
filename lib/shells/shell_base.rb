@@ -403,7 +403,15 @@ module Shells
       exec command, options, &block
       last_exit_code
     end
-
+    
+    ##
+    # Executes a command ignoring any exit code.
+    #
+    # Returns the output of the command and does not even retrieve the exit code.
+    def exec_ignore_code(command, options = {}, &block)
+      options = (options || {}).merge(retrieve_exit_code: false, on_non_zero_exit_code: :ignore)
+      exec command, options, &block
+    end
 
     ##
     # Reads from a file on the device.
@@ -419,9 +427,7 @@ module Shells
 
 
     protected
-
-
-
+    
     ##
     # Validates the options provided to the class.
     #
