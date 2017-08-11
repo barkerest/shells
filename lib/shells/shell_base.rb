@@ -803,17 +803,13 @@ module Shells
             combined_output
           end
 
-      possible_starts = [
-          command,
-          options[:prompt] + command,
-          options[:prompt] + ' ' + command
-      ]
-
+      command_regex = command_match(command)
+      
       # Go until we run out of data or we find one of the possible command starts.
       # Note that we EXPECT the command to the first line of the output from the command because we expect the
       # shell to echo it back to us.
       result_cmd,_,result_data = ret.partition("\n")
-      until result_data.to_s.strip == '' || possible_starts.include?(result_cmd)
+      until result_data.to_s.strip == '' || result_cmd.strip =~ command_regex
         result_cmd,_,result_data = result_data.partition("\n")
       end
 
@@ -842,7 +838,19 @@ module Shells
     def stdcomb_hist
       @stdcomb_hist ||= []
     end
-
+    
+    def command_match(command)
+      p = @options[:prompt]
+              .gsub('[', '\\[')
+              .gsub('(', '\\(')
+              .gsub('.', '\\.')
+              .gsub('*', '\\*')
+              .gsub('{', '\\{')
+              .gsub('?', '\\?')
+      
+      /\A(?:#{p}\s*)?#{command}\z/
+    end
+    
     def prompt_match
       # allow for trailing spaces or tabs, but no other whitespace.
       @prompt_match ||= /#{@options[:prompt]}[ \t]*$/
