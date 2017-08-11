@@ -572,7 +572,7 @@ module Shells
         !(combined_output =~ prompt_match)
       end
 
-      pos = combined_output =~ prompt_match
+      pos = (combined_output =~ prompt_match)
       if combined_output[pos - 1] != "\n"
         # no newline before prompt, fix that.
         self.combined_output = combined_output[0...pos] + "\n" + combined_output[pos..-1]
@@ -603,7 +603,7 @@ module Shells
       end
       stderr_received do |data|
         @last_input = Time.now
-        append_stderr strip_ansi_escap(data), &block
+        append_stderr strip_ansi_escape(data), &block
       end
     end
 
@@ -797,7 +797,7 @@ module Shells
     def command_output(command)
       # get everything except for the ending prompt.
       ret =
-          if (prompt_pos = combined_output =~ prompt_match)
+          if (prompt_pos = (combined_output =~ prompt_match))
             combined_output[0...prompt_pos]
           else
             combined_output
