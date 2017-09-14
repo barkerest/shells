@@ -812,7 +812,11 @@ module Shells
       until result_data.to_s.strip == '' || result_cmd.strip =~ command_regex
         result_cmd,_,result_data = result_data.partition("\n")
       end
-
+      
+      if result_cmd.nil? || !(result_cmd =~ command_regex)
+        STDERR.puts "SHELL WARNING: Failed to match #{command_regex.inspect}."
+      end
+      
       result_data
     end
 
