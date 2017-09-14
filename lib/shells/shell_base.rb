@@ -852,12 +852,12 @@ module Shells
     def command_match(command)
       p = regex_escape @options[:prompt]
       c = regex_escape command
-      /\A(?:#{p}\s*)?#{c}[ \t\r]*\n?/m
+      /\A(?:#{p}\s*)?#{c}[ \t]*\n?/m
     end
     
     def prompt_match
       # allow for trailing spaces or tabs, but no other whitespace.
-      @prompt_match ||= /#{@options[:prompt]}[ \t]*$/
+      @prompt_match ||= /#{regex_escape @options[:prompt]}[ \t]*$/
     end
 
   end
