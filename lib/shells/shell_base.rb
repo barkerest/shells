@@ -349,6 +349,7 @@ module Shells
       options[:on_non_zero_exit_code] = self.options[:on_non_zero_exit_code] unless [:raise, :ignore].include?(options[:on_non_zero_exit_code])
       options[:silence_timeout] = self.options[:silence_timeout] if options[:silence_timeout] == :default
       options[:command_timeout] = self.options[:command_timeout] if options[:command_timeout] == :default
+      options[:command_is_echoed] = true if options[:command_is_echoed].nil?
       ret = ''
 
       begin
@@ -365,7 +366,7 @@ module Shells
         if wait_for_prompt(options[:silence_timeout], options[:command_timeout], options[:timeout_error])
           # get the output of the command, minus the trailing prompt.
           debug 'Reading output of command...'
-          ret = command_output command
+          ret = command_output command, options[:command_is_echoed]
 
           if options[:retrieve_exit_code]
             self.last_exit_code = get_exit_code
@@ -794,7 +795,7 @@ module Shells
       data.gsub("\r\n", "\n").gsub(" \r", "").gsub("\r", "")
     end
 
-    def command_output(command)
+    def command_output(command, expect_command = true)
       # get everything except for the ending prompt.
       ret =
           if (prompt_pos = (combined_output =~ prompt_match))
@@ -803,21 +804,26 @@ module Shells
             combined_output
           end
 
-      command_regex = command_match(command)
       
-      # Go until we run out of data or we find one of the possible command starts.
-      # Note that we EXPECT the command to the first line of the output from the command because we expect the
-      # shell to echo it back to us.
-      result_cmd,_,result_data = ret.partition("\n")
-      until result_data.to_s.strip == '' || result_cmd.strip =~ command_regex
-        result_cmd,_,result_data = result_data.partition("\n")
+      if expect_command
+        command_regex = command_match(command)
+        
+        # Go until we run out of data or we find one of the possible command starts.
+        # Note that we EXPECT the command to the first line of the output from the command because we expect the
+        # shell to echo it back to us.
+        result_cmd,_,result_data = ret.partition("\n")
+        until result_data.to_s.strip == '' || result_cmd.strip =~ command_regex
+          result_cmd,_,result_data = result_data.partition("\n")
+        end
+        
+        if result_cmd.nil? || !(result_cmd =~ command_regex)
+          STDERR.puts "SHELL WARNING: Failed to match #{command_regex.inspect}."
+        end
+        
+        result_data
+      else
+        ret
       end
-      
-      if result_cmd.nil? || !(result_cmd =~ command_regex)
-        STDERR.puts "SHELL WARNING: Failed to match #{command_regex.inspect}."
-      end
-      
-      result_data
     end
 
     def strip_ansi_escape(data)

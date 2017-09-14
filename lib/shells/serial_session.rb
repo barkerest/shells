@@ -138,10 +138,10 @@ module Shells
       else
         # set the prompt, wait up to 2 seconds for a response, then try one more time.
         begin
-          exec cmd, command_timeout: 2, retrieve_exit_code: false
+          exec cmd, command_timeout: 2, retrieve_exit_code: false, command_is_echoed: false
         rescue Shells::CommandTimeout
           begin
-            exec cmd, command_timeout: 2, retrieve_exit_code: false
+            exec cmd, command_timeout: 2, retrieve_exit_code: false, command_is_echoed: false
           rescue Shells::CommandTimeout
             raise Shells::FailedToSetPrompt
           end
