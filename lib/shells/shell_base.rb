@@ -841,18 +841,22 @@ module Shells
     
     def regex_escape(text)
       text
+          .gsub('\\', '\\\\')
           .gsub('[', '\\[')
+          .gsub(']', '\\]')
           .gsub('(', '\\(')
+          .gsub(')', '\\)')
           .gsub('.', '\\.')
           .gsub('*', '\\*')
           .gsub('{', '\\{')
+          .gsub('}', '\\}')
           .gsub('?', '\\?')
     end
     
     def command_match(command)
       p = regex_escape @options[:prompt]
       c = regex_escape command
-      /\A(?:#{p}\s*)?#{c}[ \t]*\n?/m
+      /\A(?:#{p}\s*)?#{c}[ \t]*\z/
     end
     
     def prompt_match
