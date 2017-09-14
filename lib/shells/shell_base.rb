@@ -852,9 +852,12 @@ module Shells
           .gsub(')', '\\)')
           .gsub('.', '\\.')
           .gsub('*', '\\*')
+          .gsub('+', '\\+')
+          .gsub('?', '\\?')
           .gsub('{', '\\{')
           .gsub('}', '\\}')
-          .gsub('?', '\\?')
+          .gsub('$', '\\$')
+          .gsub('^', '\\^')
     end
     
     def command_match(command)
