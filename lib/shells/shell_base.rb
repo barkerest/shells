@@ -839,16 +839,20 @@ module Shells
       @stdcomb_hist ||= []
     end
     
+    def regex_escape(text)
+      text
+          .gsub('[', '\\[')
+          .gsub('(', '\\(')
+          .gsub('.', '\\.')
+          .gsub('*', '\\*')
+          .gsub('{', '\\{')
+          .gsub('?', '\\?')
+    end
+    
     def command_match(command)
-      p = @options[:prompt]
-              .gsub('[', '\\[')
-              .gsub('(', '\\(')
-              .gsub('.', '\\.')
-              .gsub('*', '\\*')
-              .gsub('{', '\\{')
-              .gsub('?', '\\?')
-      
-      /\A(?:#{p}\s*)?#{command}\z/
+      p = regex_escape @options[:prompt]
+      c = regex_escape command
+      /\A(?:#{p}\s*)?#{c}[ \t\r]*\n?/m
     end
     
     def prompt_match
