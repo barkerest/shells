@@ -1,0 +1,201 @@
+#!/usr/bin/env ruby
+
+require "bundler/setup"
+require "net/ssh"
+require "io/console"
+require "thread"
+
+class TestClient
+  LINE_SEPARATOR = ('=-' * 39) + "=\n\n"
+
+  attr_accessor :host, :port, :user, :password
+
+  def initialize(options = {})
+    self.host = options[:host]
+    self.port = options[:port]
+    self.user = options[:user]
+    self.password = options[:password]
+  end
+
+
+  def run
+    show_header
+    input_config
+    run_session
+    show_footer
+  end
+
+
+  def show_header
+    STDOUT.print "Simple SSH Test Client\n"
+    STDOUT.print LINE_SEPARATOR
+  end
+
+
+  def show_footer
+    STDOUT.print LINE_SEPARATOR.strip
+    STDOUT.print "\nTest client exiting successfully.\nSent #{@bytes_out} bytes, received #{@bytes_in} bytes.\n\n"
+  end
+
+
+  def input_config
+    STDOUT.print 'Enter host name:   '
+    self.host = STDIN.gets.to_s.strip
+    raise StandardError, 'Host cannot be blank.' if host == ''
+
+    STDOUT.print 'Enter port number: '
+    self.port = STDIN.gets.to_s.strip.to_i
+    self.port = 22 if port == 0
+    raise StandardError, 'Port must be between 1 and 65535.' unless (1..65535).include?(port)
+
+    STDOUT.print 'Enter user name:   '
+    self.user = STDIN.gets.to_s.strip
+    raise StandardError, 'User cannot be blank.' if user == ''
+
+    STDOUT.print 'Enter password:    '
+    self.password = STDIN.noecho(&:gets).strip
+    STDOUT.print "\n"
+
+    STDOUT.print LINE_SEPARATOR
+  end
+
+
+  def run_session
+    validate_config
+    reset_for_session
+
+    begin
+      STDOUT.print 'Connecting ... '
+      Net::SSH.start(host, user, port: port, password: password) do |ssh|
+        STDOUT.print "Connected\n"
+
+        # open a channel
+        channel = ssh.open_channel do |ch|
+
+          setup_receive_handlers_for ch
+
+          # get a PTY.
+          ch.request_pty do |_, pty_success|
+            raise StandardError, 'Failed to request PTY.' unless pty_success
+          end
+
+          # start an interactive shell.
+          ch.send_channel_request('shell') do |_, shell_success|
+            raise StandardError, 'Failed to start shell.' unless shell_success
+          end
+        end
+
+        # so the channel is now open, so we'll interact with it until it closes.
+
+        # since we will be showing the output from the shell, we don't want the local console echoing input back to us.
+        STDIN.echo = false
+
+        # buffer key input from stdin.
+        buffer_stdin do
+
+          # spend up to 1ms waiting for IO events each pass
+          ssh.loop(0.001) do |sh|
+
+            # if the channel is still active, try interacting with it.
+            if channel.active?
+              begin
+
+                # try getting the oldest key from the key buffer.
+                ch = key_from_stdin
+
+                if ch
+                  # if we have a key, send it to the shell.
+                  channel.send_data ch
+                  @bytes_out += ch.bytes.length
+                end
+
+                # the channel is active so return true to keep the session going.
+                true
+              rescue IOError
+                # any IO error will kill our session.
+                false
+              end
+            else
+              # the channel is no longer active so our session is done.
+              false
+            end
+          end
+
+        end
+      end
+    ensure
+
+      # make sure we enable echo before we exit the session.
+      STDIN.echo = true
+    end
+  end
+
+
+  private
+
+
+  def validate_config
+    raise StandardError, 'Host cannot be blank.' if host == ''
+    raise StandardError, 'Port must be between 1 and 65535.' unless (1..65535).include?(port)
+    raise StandardError, 'User cannot be blank.' if user == ''
+  end
+
+  def reset_for_session
+    @bytes_in = 0
+    @bytes_out = 0
+  end
+
+  def setup_receive_handlers_for(ch)
+
+    ch.on_data do |_, data|
+      @bytes_in += data.bytes.length
+      STDOUT.print data
+    end
+
+    ch.on_extended_data do |_, _, data|
+      @bytes_in += data.bytes.length
+      STDERR.print data
+    end
+
+  end
+
+  def buffer_stdin
+
+    @key_buf = []
+    @key_mutex = Mutex.new
+
+    key_reader = Thread.new do
+      loop do
+
+        # read a key
+        ch = STDIN.getch
+
+        # push it onto the buffer
+        @key_mutex.synchronize { @key_buf&.push ch }
+
+        # run forever
+        true
+      end
+    end
+
+    begin
+      yield
+    ensure
+      key_reader.exit
+      @key_buf = nil
+      @key_mutex = nil
+    end
+  end
+
+  def key_from_stdin
+    return nil unless @key_mutex
+    @key_mutex.synchronize { @key_buf&.shift }
+  end
+
+end
+
+
+if $0 == __FILE__
+  TestClient.new.run
+end
+
