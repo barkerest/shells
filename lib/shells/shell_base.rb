@@ -404,7 +404,7 @@ module Shells
       exec command, options, &block
       last_exit_code
     end
-    
+
     ##
     # Executes a command ignoring any exit code.
     #
@@ -428,7 +428,7 @@ module Shells
 
 
     protected
-    
+
     ##
     # Validates the options provided to the class.
     #
@@ -667,9 +667,8 @@ module Shells
 
     ##
     # Processes a debug message.
-    def self.debug(msg) #:doc:
-      @debug_proc ||= instance_variable_defined?(:@on_debug) ? (instance_variable_get(:@on_debug) || ->(_) { }) : ->(_){  }
-      @debug_proc.call(msg)
+    def self.debug(msg) #:doc:'
+      @on_debug&.call(msg)
     end
 
     ##
@@ -804,10 +803,10 @@ module Shells
             combined_output
           end
 
-      
+
       if expect_command
         command_regex = command_match(command)
-        
+
         # Go until we run out of data or we find one of the possible command starts.
         # Note that we EXPECT the command to the first line of the output from the command because we expect the
         # shell to echo it back to us.
@@ -815,11 +814,11 @@ module Shells
         until result_data.to_s.strip == '' || result_cmd.strip =~ command_regex
           result_cmd,_,result_data = result_data.partition("\n")
         end
-        
+
         if result_cmd.nil? || !(result_cmd =~ command_regex)
           STDERR.puts "SHELL WARNING: Failed to match #{command_regex.inspect}."
         end
-        
+
         result_data
       else
         ret
@@ -848,7 +847,7 @@ module Shells
     def stdcomb_hist
       @stdcomb_hist ||= []
     end
-    
+
     def regex_escape(text)
       text
           .gsub('\\', '\\\\')
@@ -865,13 +864,13 @@ module Shells
           .gsub('$', '\\$')
           .gsub('^', '\\^')
     end
-    
+
     def command_match(command)
       p = regex_escape @options[:prompt]
       c = regex_escape command
       /\A(?:#{p}\s*)?#{c}[ \t]*\z/
     end
-    
+
     def prompt_match
       # allow for trailing spaces or tabs, but no other whitespace.
       @prompt_match ||= /#{regex_escape @options[:prompt]}[ \t]*$/
