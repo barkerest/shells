@@ -32,7 +32,9 @@ module Shells
   #     resulting prompt can very easily become something else entirely.  If they are provided, they will be
   #     replaced to protect the shell from getting stuck.
   # +shell+::
-  #     If set to :shell, then the default shell is executed.
+  #     If set to :shell, then the default shell is executed.  This is the default value.
+  #     If set to :none, then no shell is executed, but a PTY is still created.
+  #     If set to :no_pty, then no shell is executed and no PTY is created.
   #     If set to anything else, it is assumed to be the executable path to the shell you want to run.
   # +quit+::
   #     If set, this defines the command to execute when quitting the session.
@@ -132,33 +134,38 @@ module Shells
           # open the channel
           debug 'Opening channel...'
           @channel = ssh.open_channel do |ch|
-            # request a PTY
-            debug 'Requesting PTY...'
-            ch.request_pty do |ch_pty, success_pty|
-              raise FailedToRequestPty unless success_pty
+            # start buffering the channel output.
+            buffer_input
 
-              # pick a method to start the shell with.
-              meth = (options[:shell] == :shell) ? :send_channel_request : :exec
+            if options[:shell] == :no_pty
+              debug 'Executing session without PTY...'
 
-              buffer_input
+              ssh_exec_session &block
+            else
+              # request a PTY
+              debug 'Requesting PTY...'
+              ch.request_pty do |ch_pty, success_pty|
+                raise FailedToRequestPty unless success_pty
 
-              # start the shell
-              debug 'Starting shell...'
-              ch_pty.send(meth, options[:shell].to_s) do |ch_sh, success_sh|
-                raise FailedToStartShell unless success_sh
+                if options[:shell] == :none
+                  debug 'Executing session without shell...'
 
-                # give the shell a chance to get ready.
-                sleep 0.25
+                  ssh_exec_session &block
+                else
+                  # pick a method to start the shell with.
+                  meth = (options[:shell] == :shell) ? :send_channel_request : :exec
 
-                begin
-                  # yield to the block
-                  block.call
+                  # start the shell
+                  debug 'Starting shell...'
+                  ch_pty.send(meth, options[:shell].to_s) do |ch_sh, success_sh|
+                    raise FailedToStartShell unless success_sh
 
-                ensure
-                  # send the exit command.
-                  ignore_io_error = true
-                  debug 'Closing connection...'
-                  send_data options[:quit] + line_ending
+                    # give the shell a chance to get ready.
+                    sleep 0.25
+
+                    debug 'Executing session in shell...'
+                    ssh_exec_session &block
+                  end
                 end
               end
             end
@@ -222,6 +229,19 @@ module Shells
           debug "Received: (#{data.size} bytes) [E] #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
           block.call data
         end
+      end
+    end
+
+    private
+
+    def ssh_exec_session(&block)
+      begin
+        block.call
+      ensure
+        # send the exit command.
+        ignore_io_error = true
+        debug 'Closing connection...'
+        send_data options[:quit] + line_ending
       end
     end
 

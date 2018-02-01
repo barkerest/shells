@@ -545,6 +545,8 @@ module Shells
           end
 
       loop do
+        Thread.pass
+
         last_input = @last_input
 
         # Do we need to nudge the shell?
