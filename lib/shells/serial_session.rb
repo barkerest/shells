@@ -33,6 +33,10 @@ module Shells
   #     The characters you should avoid are !, $, \, /, ", and ' because no attempt is made to escape them and the
   #     resulting prompt can very easily become something else entirely.  If they are provided, they will be
   #     replaced to protect the shell from getting stuck.
+  # +fixed_prompt+::
+  #     A shortcut for telling the shell that the prompt is a fixed value (initially) and no attempt will be made
+  #     to change the prompt on startup.  This string is used as-is, but may cause problems if it contains the
+  #     invalid characters listed under +prompt+.
   # +quit+::
   #     If set, this defines the command to execute when quitting the session.
   #     The default is "exit" which will probably work most of the time.

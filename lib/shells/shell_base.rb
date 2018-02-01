@@ -1,4 +1,5 @@
 require 'shells/errors'
+require 'thread'
 
 module Shells
 
@@ -29,6 +30,10 @@ module Shells
     # These options are common to all shells.
     # +prompt+::
     #       Defaults to "~~#".  Most special characters will be stripped.
+    # +fixed_prompt+::
+    #     A shortcut for telling the shell that the prompt is a fixed value (initially) and no attempt will be made
+    #     to change the prompt on startup.  This string is used as-is, but may cause problems if it contains the
+    #     invalid characters listed under +prompt+.
     # +retrieve_exit_code+::
     #       Defaults to false. Can also be true.
     # +on_non_zero_exit_code+::
@@ -72,6 +77,11 @@ module Shells
                               .gsub('"', '-')
                               .gsub('\'', '-')
 
+      if @options[:fixed_prompt]
+        @options[:prompt] = @options[:fixed_prompt]
+        @options[:override_set_prompt] = ->(sh) { sh.send(:wait_for_prompt, nil, 10); true }
+      end
+
       @options[:prompt] = '~~#' if @options[:prompt] == ''
 
       raise Shells::InvalidOption, ':on_non_zero_exit_code must be :ignore, :raise, or nil.' unless [:ignore, :raise].include?(@options[:on_non_zero_exit_code])
@@ -83,31 +93,54 @@ module Shells
       @last_input = Time.now
       debug 'Calling "exec_shell"...'
       exec_shell do
+
+        # the shell has been initialized at this point, now we want to run the code block in another thread.
+        @mutex = Mutex.new
+        @input_buffer = []
+        session_thread = Thread.new do
+          begin
+            debug 'Running "before_init" hooks...'
+            run_hook :before_init
+            debug 'Calling "exec_prompt"...'
+            exec_prompt do
+              begin
+                debug 'Running "after_init" hooks...'
+                run_hook :after_init
+                debug 'Executing code block...'
+                yield self
+              ensure
+                debug 'Running "before_term" hooks...'
+                run_hook :before_term
+              end
+            end
+          rescue QuitNow
+            debug 'Received QuitNow signal.'
+            nil
+          rescue Exception => ex
+            unless run_hook(:on_exception, ex)
+              raise
+            end
+          ensure
+            debug 'Running "after_term" hooks.'
+            run_hook :after_term
+          end
+        end
+
+        # and then block here while the code is being processed.
         begin
-          debug 'Running "before_init" hooks...'
-          run_hook :before_init
-          debug 'Calling "exec_prompt"...'
-          exec_prompt do
-            begin
-              debug 'Running "after_init" hooks...'
-              run_hook :after_init
-              debug 'Executing code block...'
-              block.call self
-            ensure
-              debug 'Running "before_term" hooks...'
-              run_hook :before_term
+          debug 'Calling "exec_session_loop"...'
+          exec_session_loop do
+            if session_active?
+              txt = next_input
+              if txt
+                send_data txt
+              end
+            else
+              false
             end
           end
-        rescue QuitNow
-          debug 'Received QuitNow signal.'
-          nil
-        rescue Exception => ex
-          unless run_hook(:on_exception, ex)
-            raise
-          end
         ensure
-          debug 'Running "after_term" hooks...'
-          run_hook :after_term
+          session_thread.exit
         end
       end
 
@@ -124,17 +157,9 @@ module Shells
     #   end
     #
     def self.on_debug(proc = nil, &block)
-      @on_debug =
-          if proc.respond_to?(:call)
-            proc
-          elsif proc && respond_to?(proc.to_s, true)
-            method(proc.to_s.to_sym)
-          elsif block
-            block
-          else
-            nil
-          end
+      add_hook :on_debug, proc, &block
     end
+
 
     ##
     # Adds code to be run before the shell is fully initialized.
@@ -362,7 +387,7 @@ module Shells
 
         # send the command and wait for the prompt to return.
         debug 'Sending command: ' + command
-        send_data command + line_ending
+        queue_input command + line_ending
         if wait_for_prompt(options[:silence_timeout], options[:command_timeout], options[:timeout_error])
           # get the output of the command, minus the trailing prompt.
           debug 'Reading output of command...'
@@ -454,8 +479,32 @@ module Shells
     #
     # This method should initialize the shell prompt and then yield.
     #
-    # You must define this method in your subclass.
     def exec_prompt(&block) #:doc:
+      cmd = options[:override_set_prompt]
+      if cmd.respond_to?(:call)
+        raise Shells::FailedToSetPrompt unless cmd.call(self)
+      else
+        wait_for_prompt nil, 10, true
+      end
+
+      # yield to the block
+      yield
+    end
+
+    ##
+    # Executes the session loop.
+    #
+    # The session loop should process whatever backend code needs processed and then yield to the block.
+    # If the block returns true, then it should loop, otherwise it should exit.
+    #
+    # You must define this method in your subclass.
+    def exec_session_loop(&block)
+      raise ::NotImplementedError
+    end
+
+    ##
+    # Returns true if the session is still active, otherwise false to exit.
+    def session_active?
       raise ::NotImplementedError
     end
 
@@ -464,18 +513,6 @@ module Shells
     #
     # You must define this method in your subclass.
     def send_data(data) #:doc:
-      raise ::NotImplementedError
-    end
-
-    ##
-    # Loops while the block returns any true value.
-    #
-    # Inside the loop you should check for data being received from the shell and dispatch it to the appropriate
-    # hook method (see stdout_received() and stderr_received()).  Once input has been cleared you should execute
-    # the block and exit unless the block returns a true value.
-    #
-    # You must define this method in your subclass.
-    def loop(&block) #:doc:
       raise ::NotImplementedError
     end
 
@@ -544,7 +581,7 @@ module Shells
             nil
           end
 
-      loop do
+      until combined_output =~ prompt_match
         Thread.pass
 
         last_input = @last_input
@@ -560,7 +597,7 @@ module Shells
             sent_nl_times = (sent_nl_at.nil? || sent_nl_at < last_input) ? 1 : (sent_nl_times + 1)
             sent_nl_at = Time.now
 
-            send_data line_ending
+            queue_input line_ending
 
             # wait a bit longer...
             @last_input = sent_nl_at
@@ -571,8 +608,6 @@ module Shells
           raise Shells::CommandTimeout if timeout_error
           return false
         end
-
-        !(combined_output =~ prompt_match)
       end
 
       pos = (combined_output =~ prompt_match)
@@ -670,7 +705,7 @@ module Shells
     ##
     # Processes a debug message.
     def self.debug(msg) #:doc:'
-      @on_debug&.call(msg)
+      run_hook :on_debug, msg
     end
 
     ##
@@ -732,6 +767,16 @@ module Shells
 
     end
 
+    # statically run hooks receive the explicit arguments only.
+    def self.run_hook(hook_name, *args)
+      (hooks[hook_name] || []).each do |hook|
+        result = hook.call(*args)
+        return true if result.is_a?(TrueClass)
+      end
+      false
+    end
+
+    # instance run hooks receive the shell instance as the first argument, then the explicit arguments.
     def run_hook(hook_name, *args)
       (self.class.hooks[hook_name] || []).each do |hook|
         result = hook.call(self, *args)
@@ -876,6 +921,14 @@ module Shells
     def prompt_match
       # allow for trailing spaces or tabs, but no other whitespace.
       @prompt_match ||= /#{regex_escape @options[:prompt]}[ \t]*$/
+    end
+
+    def queue_input(data)
+      @mutex.synchronize { @input_buffer.push data }
+    end
+
+    def next_input
+      @mutex.synchronize { @input_buffer&.shift }
     end
 
   end
