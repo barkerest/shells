@@ -87,9 +87,6 @@ class TestClient
 
         # so the channel is now open, so we'll interact with it until it closes.
 
-        # since we will be showing the output from the shell, we don't want the local console echoing input back to us.
-        STDIN.echo = false
-
         # buffer key input from stdin.
         buffer_stdin do
 
@@ -179,8 +176,12 @@ class TestClient
     end
 
     begin
+      # disable echo and yield to the block.
+      STDIN.echo = false
       yield
     ensure
+      # enable echo, kill the thread, and nullify the buffer.
+      STDIN.echo = true
       key_reader.exit
       @key_buf = nil
       @key_mutex = nil
