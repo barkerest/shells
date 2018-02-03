@@ -91,6 +91,15 @@ module Shells
 
     end
 
+    ##
+    # Validates the options provided to the class.
+    #
+    # You should define this method in your subclass.
+    def validate_options #:doc:
+      warn "The validate_options() method is not defined on the #{self.class} class."
+    end
+    protected :validate_options
+
 
     ##
     # Sets up the shell session.
@@ -109,6 +118,7 @@ module Shells
     # This method is called after the session block is run before disconnecting the shell.
     #
     # When overridden, this method must call +super+.
+    # This method will be called even if an exception is raised during the session.
     def teardown #:doc:
 
     end
@@ -117,7 +127,7 @@ module Shells
     ##
     # Connects to the shell.
     #
-    # This method must be overridden, the overriding method must call +super+.
+    # This method must be defined, the defined method must call +super+.
     def connect #:doc:
       raise ::NotImplementedError, 'The +connect+ method must be overridden.' if method(:connect).owner == ::Shells::ShellBase
       @connected = true
@@ -127,10 +137,10 @@ module Shells
     ##
     # Disconnects from the shell.
     #
-    # This method must be overridden, the overriding method must call +super+.
+    # This method must be defined, the defined method must call +super+.
+    # This method will always be called, even if an exception occurs during the session.
     def disconnect #:doc:
       raise ::NotImplementedError, 'The +disconnect+ method must be overridden.' if method(:disconnect).owner == ::Shells::ShellBase
-      @connected = false
     end
     protected :disconnect
 
@@ -141,9 +151,197 @@ module Shells
     end
 
     ##
-    # Runs a shell session.
-    def run(&block)
+    # Determines if the shell is currently active.
+    #
+    # You must define this method in your subclass.
+    def active? #:doc:
+      raise ::NotImplementedError
+    end
+    protected :active?
 
+    ##
+    # Runs the IO loop on the shell while the block returns true.
+    #
+    # You must define this method in your subclass.
+    # It should block for as little time as necessary before yielding to the block.
+    def io_loop(&block) #:doc:
+      raise ::NotImplementedError
+    end
+    protected :io_loop
+
+    ##
+    # Sends data to the shell.
+    #
+    # You must define this method in your subclass.
+    def send_data(data) #:doc:
+      raise ::NotImplementedError
+    end
+    protected :send_data
+
+    ##
+    # Register a callback to run when stdout data is received.
+    #
+    # The block will be passed the data received.
+    #
+    # You must define this method in your subclass and it should set a hook to be called when data is received.
+    def stdout_received(&block) #:doc:
+      raise ::NotImplementedError
+    end
+    protected :stdout_received
+
+    ##
+    # Register a callback to run when stderr data is received.
+    #
+    # The block will be passed the data received.
+    #
+    # You must define this method in your subclass and it should set a hook to be called when data is received.
+    def stderr_received(&block) #:doc:
+      raise ::NotImplementedError
+    end
+    protected :stderr_received
+
+    def queue_input(data)
+      semaphore.synchronize { input_stack.push(data) }
+    end
+    private :queue_input
+
+
+    # the semaphore used to synchronize the threads.
+    attr_accessor :semaphore
+    private :semaphore, :semaphore=
+
+    # track exceptions raised during session execution.
+    attr_accessor :session_exception
+    private :session_exception, :session_exception=
+
+    ##
+    # Set to true to ignore IO errors.
+    attr_accessor :ignore_io_error
+    protected :ignore_io_error, :ignore_io_error=
+
+    attr_accessor :session_thread
+    private :session_thread, :session_thread=
+
+    # track commands being sent to the shell.
+    attr_accessor :input_stack
+    private :input_stack, :input_stack=
+
+    # track the output contents.
+    attr_accessor :output_stack
+    private :output_stack, :output_stack
+
+    ##
+    # Gets the STDOUT from the session.
+    attr_accessor :stdout
+    private :stdout=
+
+    ##
+    # Gets the STDERR from the session.
+    attr_accessor :stderr
+    private :stderr=
+
+    ##
+    # Gets all of the output from the session.
+    attr_accessor :output
+    private :output=
+
+    ##
+    # Gets the last time output was received from the shell.
+    attr_accessor :last_output
+    protected :last_output
+    private :last_output=
+
+
+    ##
+    # Runs a shell session.
+    #
+    # The block provided will be run asynchronously with the shell
+    def run(&block)
+      raise AlreadyConnected if connected?
+      connect
+
+      # reset runtime variables.
+      self.session_exception = nil
+      self.input_stack = []
+      self.output_stack = []
+      self.stdout = ''
+      self.stderr = ''
+      self.output = ''
+      self.semaphore = Mutex.new
+      self.ignore_io_error = false
+
+      begin
+
+        # run the session asynchronously.
+        self.session_thread = Thread.start(self) do |sh|
+          begin
+            begin
+              sh.setup
+              block.call sh
+            ensure
+              sh.teardown
+            end
+          rescue QuitNow
+            # just exit the session.
+          rescue =>e
+            unless sh.send(:run_hook, :on_exception, e)
+              sh.send(:semaphore).synchronize{ sh.send(:session_exception=, e) }
+            end
+          end
+        end
+
+        # process the input buffer while the thread is alive and the shell is active.
+        io_loop do
+          if active?
+            begin
+              if session_thread.status
+                # process input from the session.
+                inp = semaphore.synchronize{ input_stack.shift }
+                if inp
+                  send_data inp
+                end
+                # continue running the IO loop
+                true
+              elsif session_exception
+                # propagate the exception.
+                raise session_exception.class, session_exception.message, session_exception.backtrace
+              else
+                # the thread has exited, but no exception exists.
+                # regardless, the IO loop should now exit.
+                false
+              end
+            rescue IOError
+              if ignore_io_error
+                # we were (sort of) expecting the IO error, so just tell the IO loop to exit.
+                false
+              else
+                raise
+              end
+            end
+          else
+            # the shell session is no longer active, tell the IO loop to exit.
+            false
+          end
+        end
+      rescue
+        # when an error occurs, try to disconnect, but ignore any further errors.
+        begin
+          disconnect
+        rescue
+          # ignore
+        end
+        raise
+      else
+        # when no error occurs, try to disconnect and propagate any errors (unless we are ignoring IO errors).
+        begin
+          disconnect
+        rescue IOError
+          raise unless ignore_io_error
+        end
+      ensure
+        # make sure the connected flag is reset at completion.
+        @connected = false
+      end
     end
 
     ##
@@ -194,43 +392,6 @@ module Shells
       "\n"
     end
 
-    ##
-    # Gets the standard output from the session.
-    #
-    # The prompts are stripped from the standard output as they are encountered.
-    # So this will be a list of commands with their output.
-    #
-    # All line endings are converted to LF characters, so you will not
-    # encounter or need to search for CRLF or CR sequences.
-    #
-    def stdout
-      @stdout ||= ''
-    end
-
-    ##
-    # Gets the error output from the session.
-    #
-    # All line endings are converted to LF characters, so you will not
-    # encounter or need to search for CRLF or CR sequences.
-    #
-    def stderr
-      @stderr ||= ''
-    end
-
-    ##
-    # Gets both the standard output and error output from the session.
-    #
-    # The prompts will be included in the combined output.
-    # There is no attempt to differentiate error output from standard output.
-    #
-    # This is essentially the definitive log for the session.
-    #
-    # All line endings are converted to LF characters, so you will not
-    # encounter or need to search for CRLF or CR sequences.
-    #
-    def combined_output
-      @stdcomb ||= ''
-    end
 
     ##
     # Executes a command during the shell session.
@@ -352,87 +513,8 @@ module Shells
 
     protected
 
-    ##
-    # Validates the options provided to the class.
-    #
-    # You should define this method in your subclass.
-    def validate_options #:doc:
-      warn "The validate_options() method is not defined on the #{self.class} class."
-    end
 
-    ##
-    # Executes a shell session.
-    #
-    # This method should connect to the shell and then yield.
-    # It should not initialize the prompt.
-    # When the yielded block returns this method should then disconnect from the shell.
-    #
-    # You must define this method in your subclass.
-    def exec_shell(&block) #:doc:
-      raise ::NotImplementedError
-    end
 
-    ##
-    # Runs all prompted commands.
-    #
-    # This method should initialize the shell prompt and then yield.
-    #
-    def exec_prompt(&block) #:doc:
-      cmd = options[:override_set_prompt]
-      if cmd.respond_to?(:call)
-        raise Shells::FailedToSetPrompt unless cmd.call(self)
-      else
-        wait_for_prompt nil, 10, true
-      end
-
-      # yield to the block
-      yield
-    end
-
-    ##
-    # Executes the session loop.
-    #
-    # The session loop should process whatever backend code needs processed and then yield to the block.
-    # If the block returns true, then it should loop, otherwise it should exit.
-    #
-    # You must define this method in your subclass.
-    def exec_session_loop(&block)
-      raise ::NotImplementedError
-    end
-
-    ##
-    # Returns true if the session is still active, otherwise false to exit.
-    def session_active?
-      raise ::NotImplementedError
-    end
-
-    ##
-    # Sends data to the shell.
-    #
-    # You must define this method in your subclass.
-    def send_data(data) #:doc:
-      raise ::NotImplementedError
-    end
-
-    ##
-    # Register a callback to run when stdout data is received.
-    #
-    # The block will be passed the data received.
-    #
-    # You must define this method in your subclass and it should set a hook to be called when data is received.
-    def stdout_received(&block) #:doc:
-      raise ::NotImplementedError
-    end
-
-    ##
-    # Register a callback to run when stderr data is received.
-    #
-    # The block will be passed the data received.
-    #
-    # You must define this method in your subclass and it should set a hook to be called when data is received.
-    def stderr_received(&block) #:doc:
-      raise ::NotImplementedError
-    end
 
     ##
     # Gets the exit code from the last command.
@@ -442,8 +524,11 @@ module Shells
       raise ::NotImplementedError
     end
 
-
-
+    def prompt_match
+      # allow for trailing spaces or tabs, but no other whitespace.
+      @prompt_match ||= /#{regex_escape @options[:prompt]}[ \t]*$/
+    end
+    private :prompt_match
 
     ##
     # Waits for the prompt to appear at the end of the output.
@@ -600,10 +685,13 @@ module Shells
       end
     end
 
-    ##
-    # Processes a debug message.
-    def self.debug(msg) #:doc:'
-      run_hook :on_debug, msg
+    class << self
+      ##
+      # Processes a debug message.
+      def debug(msg) #:doc:'
+        run_hook :on_debug, msg
+      end
+      protected :debug
     end
 
     ##
@@ -611,6 +699,7 @@ module Shells
     def debug(msg) #:nodoc:
       self.class.debug msg
     end
+    protected :debug
 
     ##
     # Sets the prompt to the value temporarily for execution of the code block.
@@ -643,35 +732,46 @@ module Shells
     end
 
 
-    private
 
-
-    def self.add_hook(hook_name, proc, &block)
-      hooks[hook_name] ||= []
-
-      if proc.respond_to?(:call)
-        hooks[hook_name] << proc
-      elsif proc.is_a?(Symbol) || proc.is_a?(String)
-        if self.respond_to?(proc, true)
-          hooks[hook_name] << method(proc.to_sym)
-        end
-      elsif proc
-        raise ArgumentError, 'proc must respond to :call method or be the name of a static method in this class'
+    class << self
+      def hooks
+        @hooks ||= {}
       end
-
-      if block
-        hooks[hook_name] << block
-      end
-
+      private :hooks
     end
 
-    # statically run hooks receive the explicit arguments only.
-    def self.run_hook(hook_name, *args)
-      (hooks[hook_name] || []).each do |hook|
-        result = hook.call(*args)
-        return true if result.is_a?(TrueClass)
+    class << self
+      def add_hook(hook_name, proc, &block)
+        hooks[hook_name] ||= []
+
+        if proc.respond_to?(:call)
+          hooks[hook_name] << proc
+        elsif proc.is_a?(Symbol) || proc.is_a?(String)
+          if self.respond_to?(proc, true)
+            hooks[hook_name] << method(proc.to_sym)
+          end
+        elsif proc
+          raise ArgumentError, 'proc must respond to :call method or be the name of a static method in this class'
+        end
+
+        if block
+          hooks[hook_name] << block
+        end
+
       end
-      false
+      private :add_hook
+    end
+
+    class << self
+      # statically run hooks receive the explicit arguments only.
+      def run_hook(hook_name, *args)
+        (hooks[hook_name] || []).each do |hook|
+          result = hook.call(*args)
+          return true if result.is_a?(TrueClass)
+        end
+        false
+      end
+      private :run_hook
     end
 
     # instance run hooks receive the shell instance as the first argument, then the explicit arguments.
@@ -682,23 +782,9 @@ module Shells
       end
       false
     end
-
-    def self.hooks
-      @hooks ||= {}
-    end
+    private :run_hook
 
 
-    def stdout=(value)
-      @stdout = value
-    end
-
-    def stderr=(value)
-      @stderr = value
-    end
-
-    def combined_output=(value)
-      @stdcomb = value
-    end
 
     def append_stdout(data, &block)
       # Combined output gets the prompts,
@@ -781,17 +867,6 @@ module Shells
           .gsub("\t", ' ')                          #   turn tabs into spaces.
     end
 
-    def stdout_hist
-      @stdout_hist ||= []
-    end
-
-    def stderr_hist
-      @stderr_hist ||= []
-    end
-
-    def stdcomb_hist
-      @stdcomb_hist ||= []
-    end
 
     def regex_escape(text)
       text
@@ -816,18 +891,7 @@ module Shells
       /\A(?:#{p}\s*)?#{c}[ \t]*\z/
     end
 
-    def prompt_match
-      # allow for trailing spaces or tabs, but no other whitespace.
-      @prompt_match ||= /#{regex_escape @options[:prompt]}[ \t]*$/
-    end
 
-    def queue_input(data)
-      @mutex.synchronize { @input_buffer.push data }
-    end
-
-    def next_input
-      @mutex.synchronize { @input_buffer&.shift }
-    end
 
   end
 
