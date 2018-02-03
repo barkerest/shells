@@ -89,62 +89,61 @@ module Shells
       validate_options
       @options.freeze   # no more changes to options now.
 
-      @session_complete = false
-      @last_input = Time.now
-      debug 'Calling "exec_shell"...'
-      exec_shell do
+    end
 
-        # the shell has been initialized at this point, now we want to run the code block in another thread.
-        @mutex = Mutex.new
-        @input_buffer = []
-        session_thread = Thread.new do
-          begin
-            debug 'Running "before_init" hooks...'
-            run_hook :before_init
-            debug 'Calling "exec_prompt"...'
-            exec_prompt do
-              begin
-                debug 'Running "after_init" hooks...'
-                run_hook :after_init
-                debug 'Executing code block...'
-                yield self
-              ensure
-                debug 'Running "before_term" hooks...'
-                run_hook :before_term
-              end
-            end
-          rescue QuitNow
-            debug 'Received QuitNow signal.'
-            nil
-          rescue Exception => ex
-            unless run_hook(:on_exception, ex)
-              raise
-            end
-          ensure
-            debug 'Running "after_term" hooks.'
-            run_hook :after_term
-          end
-        end
 
-        # and then block here while the code is being processed.
-        begin
-          debug 'Calling "exec_session_loop"...'
-          exec_session_loop do
-            if session_active?
-              txt = next_input
-              if txt
-                send_data txt
-              end
-            else
-              false
-            end
-          end
-        ensure
-          session_thread.exit
-        end
-      end
+    ##
+    # Sets up the shell session.
+    #
+    # This method is called after connecting the shell before the session block is run.
+    #
+    # When overridden, this method must call +super+.
+    def setup #:doc:
 
-      @session_complete = true
+    end
+    protected :setup
+
+    ##
+    # Tears down the shell session.
+    #
+    # This method is called after the session block is run before disconnecting the shell.
+    #
+    # When overridden, this method must call +super+.
+    def teardown #:doc:
+
+    end
+    protected :teardown
+
+    ##
+    # Connects to the shell.
+    #
+    # This method must be overridden, the overriding method must call +super+.
+    def connect #:doc:
+      raise ::NotImplementedError, 'The +connect+ method must be overridden.' if method(:connect).owner == ::Shells::ShellBase
+      @connected = true
+    end
+    protected :connect
+
+    ##
+    # Disconnects from the shell.
+    #
+    # This method must be overridden, the overriding method must call +super+.
+    def disconnect #:doc:
+      raise ::NotImplementedError, 'The +disconnect+ method must be overridden.' if method(:disconnect).owner == ::Shells::ShellBase
+      @connected = false
+    end
+    protected :disconnect
+
+    ##
+    # Determines if the shell is currently connected.
+    def connected?
+      @connected
+    end
+
+    ##
+    # Runs a shell session.
+    def run(&block)
+
     end
 
     ##
@@ -159,101 +158,6 @@ module Shells
     def self.on_debug(proc = nil, &block)
       add_hook :on_debug, proc, &block
     end
-
-
-    ##
-    # Adds code to be run before the shell is fully initialized.
-    #
-    # This code would normally be used to navigate a menu or setup an environment.
-    # This method allows you to define that behavior without rewriting the connection code.
-    #
-    #   before_init do |shell|
-    #     ...
-    #   end
-    #
-    # You can also pass the name of a static method.
-    #
-    #   def self.some_init_function(shell)
-    #     ...
-    #   end
-    #
-    #   before_init :some_init_function
-    #
-    def self.before_init(proc = nil, &block)
-      add_hook :before_init, proc, &block
-    end
-
-    ##
-    # Adds code to be run after the shell is fully initialized but before the session code executes.
-    #
-    #   after_init do |shell|
-    #     ...
-    #   end
-    #
-    # You can also pass the name of a static method.
-    #
-    #   def self.some_init_function(shell)
-    #     ...
-    #   end
-    #
-    #   after_init :some_init_function
-    #
-    def self.after_init(proc = nil, &block)
-      add_hook :after_init, proc, &block
-    end
-
-
-    ##
-    # Adds code to be run before the shell is terminated immediately after executing the session code.
-    #
-    # This code might also be used to navigate a menu or clean up an environment.
-    # This method allows you to define that behavior without rewriting the connection code.
-    #
-    # This code is guaranteed to be called if the shell initializes correctly.
-    # That means if an error is raised in the session code, this will still fire before handling the error.
-    #
-    #   before_term do |shell|
-    #     ...
-    #   end
-    #
-    # You can also pass the name of a static method.
-    #
-    #   def self.some_term_function(shell)
-    #     ...
-    #   end
-    #
-    #   before_term :some_term_function
-    #
-    def self.before_term(proc = nil, &block)
-      add_hook :before_term, proc, &block
-    end
-
-    ##
-    # Adds code to be run after the shell session is terminated but before closing the shell session.
-    #
-    # This code might also be used to navigate a menu or clean up an environment.
-    # This method allows you to define that behavior without rewriting the connection code.
-    #
-    # This code is guaranteed to be called if the shell connects correctly.
-    # That means if an error is raised in the session code or shell initialization code, this will still fire before
-    # closing the shell session.
-    #
-    #   after_term do |shell|
-    #     ...
-    #   end
-    #
-    # You can also pass the name of a static method.
-    #
-    #   def self.some_term_function(shell)
-    #     ...
-    #   end
-    #
-    #   after_term :some_term_function
-    #
-    def self.after_term(proc = nil, &block)
-      add_hook :after_term, proc, &block
-    end
-
 
     ##
     # Adds code to be run when an exception occurs.
@@ -291,15 +195,9 @@ module Shells
     end
 
     ##
-    # Has the session been completed?
-    def session_complete?
-      @session_complete
-    end
-
-    ##
     # Gets the standard output from the session.
     #
-    # The prompts are stripped from the standard ouput as they are encountered.
+    # The prompts are stripped from the standard output as they are encountered.
     # So this will be a list of commands with their output.
     #
     # All line endings are converted to LF characters, so you will not

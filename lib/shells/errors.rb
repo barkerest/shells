@@ -12,8 +12,8 @@ module Shells
   end
 
   ##
-  # An error raised when a command requiring a session is attempted after the session has been completed.
-  class SessionCompleted < ShellError
+  # An error raised when +run+ is executed on a shell that is currently running.
+  class AlreadyConnected < ShellError
 
   end
 
