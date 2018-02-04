@@ -8,7 +8,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
   end
 
   def hook_test_class
-    Class.new(Shells::SshSession) do
+    Class.new(Shells::SshShell) do
       on_debug { |msg| $stderr.puts msg }
 
       attr_accessor :flags
@@ -61,7 +61,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
   def test_basic_ssh_session
     log_header
     skip if @cfg['ssh'].empty?
-    session = Shells::SshSession(@cfg['ssh'].merge(
+    session = Shells::SshShell(@cfg['ssh'].merge(
         retrieve_exit_code: false,
         on_non_zero_exit_code: :ignore,
         command_timeout: 5
@@ -82,7 +82,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
   def test_exit_codes
     log_header
     skip if @cfg['ssh'].empty?
-    Shells::SshSession(@cfg['ssh'].merge(
+    Shells::SshShell(@cfg['ssh'].merge(
         retrieve_exit_code: true,
         on_non_zero_exit_code: :ignore,
         command_timeout: 5
@@ -101,7 +101,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
   def test_read_write_file
     log_header
     skip if @cfg['ssh'].empty?
-    Shells::SshSession(@cfg['ssh'].merge(
+    Shells::SshShell(@cfg['ssh'].merge(
         retrieve_exit_code: false,
         on_non_zero_exit_code: :ignore,
         command_timeout: 5

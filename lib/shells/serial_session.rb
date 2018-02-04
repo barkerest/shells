@@ -120,7 +120,7 @@ module Shells
 
       begin
         # start buffering
-        buffer_input
+        buffer_output
 
         # yield to the block
         block.call

@@ -82,9 +82,15 @@ module Shells
       options = (options || {}).merge(retrieve_exit_code: false, on_non_zero_exit_code: :ignore)
       sudo_exec command, options, &block
     end
-    
+
 
     protected
+
+    ##
+    # Uses the PS1= command to set the prompt for the shell.
+    def setup_prompt #:nodoc:
+      exec_ignore_code "PS1=#{options[:shell]}", command_timeout: 10, timeout_error: true
+    end
 
     ##
     # Gets an exit code by echoing the $? variable from the environment.
@@ -119,7 +125,8 @@ module Shells
     def file_methods
       @file_methods ||= [
           :base64,
-          :openssl
+          :openssl,
+          :perl
       ]
     end
 
@@ -170,6 +177,7 @@ module Shells
         end
         exec cmd
       end
+
 
       ret = block.call(b64path)
 

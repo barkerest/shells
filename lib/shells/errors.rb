@@ -1,4 +1,13 @@
 module Shells
+
+  ##
+  # Raise a QuitNow to tell the shell to stop processing and exit.
+  #
+  # This is intentionally NOT a RuntimeError since it should only be caught inside the session.
+  class QuitNow < Exception
+
+  end
+
   ##
   # An error occurring within the SecureShell class aside from argument errors.
   class ShellError < StandardError
@@ -13,7 +22,13 @@ module Shells
 
   ##
   # An error raised when +run+ is executed on a shell that is currently running.
-  class AlreadyConnected < ShellError
+  class AlreadyRunning < ShellError
+
+  end
+
+  ##
+  # An error raised when a method requiring a running shell is called when the shell is not currently running.
+  class NotRunning < ShellError
 
   end
 
@@ -36,14 +51,20 @@ module Shells
   end
 
   ##
+  # A timeout error raised by the shell.
+  class ShellTimeout < ShellError
+
+  end
+
+  ##
   # An error raised when a session is waiting for output for too long.
-  class SilenceTimeout < ShellError
+  class SilenceTimeout < ShellTimeout
 
   end
 
   ##
   # An error raise when a session is waiting for a command to finish for too long.
-  class CommandTimeout < ShellError
+  class CommandTimeout < ShellTimeout
 
   end
 

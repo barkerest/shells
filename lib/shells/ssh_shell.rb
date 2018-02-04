@@ -1,17 +1,9 @@
 require 'net/ssh'
 require 'shells/shell_base'
-require 'shells/bash_common'
 
 module Shells
   ##
   # Executes an SSH session with a host.
-  #
-  # The default setup of this class should work well with any bash-like shell.
-  # In particular, the +exec_prompt+ method sets the "PS1" environment variable, which should set the prompt the shell
-  # uses, and the +get_exit_code+ methods retrieves the value of the "$?" variable which should contain the exit code
-  # from the last action.  Because there is a possibility that your shell does not utilize those methods, the
-  # +override_set_prompt+ and +override_get_exit_code+ options are available to change the behavior.
-  #
   #
   # Valid options:
   # +host+::
@@ -26,15 +18,6 @@ module Shells
   #     The #sudo_exec method for bash-like shells will also use this password for elevation.
   # +prompt+::
   #     The prompt used to determine when processes finish execution.
-  #     Defaults to '~~#', but if that doesn't work for some reason because it is valid output from one or more
-  #     commands, you can change it to something else.  It must be unique and cannot contain certain characters.
-  #     The characters you should avoid are !, $, \, /, ", and ' because no attempt is made to escape them and the
-  #     resulting prompt can very easily become something else entirely.  If they are provided, they will be
-  #     replaced to protect the shell from getting stuck.
-  # +fixed_prompt+::
-  #     A shortcut for telling the shell that the prompt is a fixed value (initially) and no attempt will be made
-  #     to change the prompt on startup.  This string is used as-is, but may cause problems if it contains the
-  #     invalid characters listed under +prompt+.
   # +shell+::
   #     If set to :shell, then the default shell is executed.  This is the default value.
   #     If set to :none, then no shell is executed, but a PTY is still created.
@@ -67,21 +50,8 @@ module Shells
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
   # +connect_timeout+::
   #     This is the maximum amount of time to wait for the initial connection to the SSH shell.
-  # +override_set_prompt+::
-  #     If provided, this must be set to either a command string that will set the prompt, or a Proc that accepts
-  #     the shell as an argument.
-  #     If set to a string, the string is sent to the shell and we wait up to two seconds for the prompt to appear.
-  #     If that fails, we resend the string and wait one more time before failing.
-  #     If set to a Proc, the Proc is called.  If the Proc returns a false value, we fail.  If the Proc returns
-  #     a non-false value, we consider it successful.
-  # +override_get_exit_code+::
-  #     If provided, this must be set to either a command string that will retrieve the exit code, or a Proc that
-  #     accepts the shell as an argument.
-  #     If set to a string, the string is sent to the shell and the output is parsed as an integer and used as the exit
-  #     code.
-  #     If set to a Proc, the Proc is called and the return value of the proc is used as the exit code.
   #
-  #   Shells::SshSession.new(
+  #   Shells::SshShell.new(
   #       host: '10.10.10.10',
   #       user: 'somebody',
   #       password: 'super-secret'
@@ -91,9 +61,7 @@ module Shells
   #     @app_is_installed = user_bin_files.include?('my_app')
   #   end
   #
-  class SshSession < Shells::ShellBase
-
-    include Shells::BashCommon
+  class SshShell < Shells::ShellBase
 
     ##
     # The error raised when we failed to request a PTY.
@@ -107,6 +75,22 @@ module Shells
 
     end
 
+    attr_accessor :ssh, :channel
+    private :ssh, :ssh=, :channel, :channel=
+
+    add_hook :on_before_run do |sh|
+      sh.instance_eval do
+        self.ssh = nil
+        self.channel = nil
+      end
+    end
+
+    add_hook :on_after_run do |sh|
+      sh.instance_eval do
+        self.ssh = nil
+        self.channel = nil
+      end
+    end
 
     protected
 
@@ -121,94 +105,91 @@ module Shells
       raise InvalidOption, 'Missing user.' if options[:user].to_s.strip == ''
     end
 
-    def exec_shell  #:nodoc:
-      begin
 
-        Net::SSH.start(
-            options[:host],
-            options[:user],
-            password: options[:password],
-            port: options[:port],
-            non_interactive: true,
-            timeout: options[:connect_timeout]
-        ) do |ssh|
+    def connect #:nodoc:
 
-          @ssh = ssh
+      debug 'Connecting to SSH host...'
+      self.ssh = Net::SSH.start(
+          options[:host],
+          options[:user],
+          password: options[:password],
+          port: options[:port],
+          non_interactive: true,
+          timeout: options[:connect_timeout]
+      )
+      debug ' > connected'
 
-          # open the channel
-          debug 'Opening channel...'
-          @channel = ssh.open_channel do |ch|
-            # start buffering the channel output.
-            buffer_input
+      opened = false
 
-            unless options[:shell] == :no_pty
-              debug 'Requesting PTY...'
-              ch.request_pty do |_, success|
-                raise FailedToRequestPty unless success
-              end
-            end
-
-            unless [:no_pty, :none].include?(options[:shell])
-              # pick a method to start the shell with.
-              meth = (options[:shell] == :shell) ? :send_channel_request : :exec
-
-              # start the shell
-              debug 'Starting shell...'
-              ch.send(meth, options[:shell].to_s) do |_, success|
-                raise FailedToStartShell unless success
-              end
-            end
-
-          end
-
-          debug 'Executing shell session...'
-
-          yield
-
-          debug 'Session has ended.'
-        end
-      ensure
-        @channel = nil
-        @ssh = nil
+      debug 'Opening channel...'
+      self.channel = ssh.open_channel do |ch|
+        opened = true
       end
+
+      io_loop { !opened }
+      debug ' > opened'
 
     end
 
-    def exec_prompt #:nodoc:
-      cmd = options[:override_set_prompt] || "PS1=\"#{options[:prompt]}\""
-      if cmd.respond_to?(:call)
-        raise Shells::FailedToSetPrompt unless cmd.call(self)
-      else
-        # set the prompt, wait up to 2 seconds for a response, then try one more time.
-        begin
-          exec cmd, command_timeout: 2, retrieve_exit_code: false, command_is_echoed: false
-        rescue Shells::CommandTimeout
-          begin
-            exec cmd, command_timeout: 2, retrieve_exit_code: false, command_is_echoed: false
-          rescue Shells::CommandTimeout
-            raise Shells::FailedToSetPrompt
-          end
+    def setup #:nodoc:
+      done = false
+      unless options[:shell] == :no_pty
+        debug 'Acquiring PTY...'
+        channel.request_pty do |_, success|
+          raise FailedToRequestPty unless success
+          debug ' > acquired'
+          done = true
         end
       end
 
-      # yield to the block
-      yield
+      until done
+        sleep 0.0001
+      end
+
+      done = false
+      unless [:no_pty,:none].include?(options[:shell])
+        debug 'Starting shell...'
+        # pick a method to start the shell with.
+        meth = (options[:shell] == :shell) ? :send_channel_request : :exec
+        channel.send(meth, options[:shell].to_s) do |_, success|
+          raise FailedToStartShell unless success
+          debug ' > started'
+          done = true
+        end
+      end
+
+      until done
+        sleep 0.0001
+      end
+
+      debug 'Calling setup_prompt...'
+      setup_prompt
+      debug ' > setup'
+    end
+
+    def disconnect #:nodoc:
+      debug 'Marking channel for closure...'
+      channel.close
+      debug ' > marked'
+      debug 'Closing SSH connection...'
+      ssh.close
+      debug ' > closed'
     end
 
     def send_data(data) #:nodoc:
-      @channel.send_data data
+      channel.send_data data
       debug "Sent: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
     end
 
     def stdout_received(&block) #:nodoc:
-      @channel.on_data do |_,data|
+      channel.on_data do |_,data|
         debug "Received: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
         block.call data
       end
     end
 
     def stderr_received(&block) #:nodoc:
-      @channel.on_extended_data do |_, type, data|
+      channel.on_extended_data do |_, type, data|
         if type == 1
           debug "Received: (#{data.size} bytes) [E] #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
           block.call data
@@ -218,20 +199,17 @@ module Shells
       end
     end
 
-    def exec_session_loop(&block) #:nodoc:
-      @ssh&.loop(0.000001) do |sh|
-        begin
-          yield
-        rescue IOError
-          # any IO error kills the session.
-          false
-        end
+    def active?
+      channel&.active?
+    end
+
+    def io_loop(&block)
+      shell = self
+      ssh&.loop(0.000001) do |_|
+        shell.instance_eval &block
       end
     end
 
-    def session_active?
-      @channel&.active?
-    end
 
   end
 end

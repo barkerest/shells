@@ -1,4 +1,4 @@
-require 'shells/ssh_session'
+require 'shells/ssh_shell'
 require 'shells/pf_sense_common'
 
 module Shells
@@ -47,7 +47,7 @@ module Shells
   #     shell.apply_filter_config
   #   end
   #
-  class PfSenseSshSession < SshSession
+  class PfSenseSshSession < SshShell
 
     include PfSenseCommon
 
