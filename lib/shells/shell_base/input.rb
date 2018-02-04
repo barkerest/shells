@@ -2,7 +2,7 @@ module Shells
   class ShellBase
 
     attr_accessor :input_fifo
-    private :input_fifo, :input_fifo
+    private :input_fifo, :input_fifo=
 
     add_hook :on_before_run do |sh|
       sh.instance_eval do

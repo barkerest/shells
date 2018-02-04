@@ -29,7 +29,7 @@ module Shells
     ##
     # The character string we are expecting to be echoed back from the shell.
     attr_accessor :wait_for_output
-    private :wait_for_output, :wait_for_output
+    private :wait_for_output, :wait_for_output=
 
     add_hook :on_before_run do |sh|
       sh.instance_eval do
