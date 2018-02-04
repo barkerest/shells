@@ -133,11 +133,35 @@ module Shells
     end
 
     ##
+    # Executes the code block with a local output buffer, merging the local buffer into the parent buffer upon completion.
+    def merge_local_buffer(&block) #:doc:
+      push_buffer
+      begin
+        yield
+      ensure
+        pop_merge_buffer
+      end
+    end
+
+    ##
+    # Executes the code block with a local output buffer, discarding the local buffer upon completion.
+    def discard_local_buffer(&block) #:doc:
+      push_buffer
+      begin
+        yield
+      ensure
+        pop_discard_buffer
+      end
+    end
+
+    private
+
+    ##
     # Pushes the buffers for output capture.
     #
     # This method is called internally in the +exec+ method, but there may be legitimate use
     # cases outside of that method as well.
-    def push_buffer #:doc:
+    def push_buffer
       raise Shells::NotRunning unless running?
       # push the buffer so we can get the output of a command.
       debug 'Pushing buffer >>'
@@ -154,7 +178,7 @@ module Shells
     #
     # This method is called internally in the +exec+ method, but there may be legitimate use
     # cases outside of that method as well.
-    def pop_merge_buffer #:doc:
+    def pop_merge_buffer
       raise Shells::NotRunning unless running?
       # almost a standard pop, however we want to merge history with current.
       debug 'Merging buffer <<'
@@ -177,8 +201,8 @@ module Shells
     #
     # This method is used internally in the +get_exit_code+ method, but there may be legitimate use
     # cases outside of that method as well.
-    def pop_discard_buffer #:doc:
-      raise Shells::SessionCompleted if session_complete?
+    def pop_discard_buffer
+      raise Shells::NotRunning unless running?
       # a standard pop discarding current data and retrieving the history.
       debug 'Discarding buffer <<'
       sync do

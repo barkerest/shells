@@ -105,11 +105,11 @@ module Shells
         cmd.call(self)
       else
         debug 'Retrieving exit code from last command...'
-        push_buffer
-        send_data cmd + line_ending
-        wait_for_prompt 1, 2
-        ret = command_output(cmd).strip.to_i
-        pop_discard_buffer
+        discard_local_buffer do
+          send_data cmd + line_ending
+          wait_for_prompt 1, 2
+          ret = command_output(cmd).strip.to_i
+        end
         debug 'Exit code: ' + ret.to_s
         ret
       end

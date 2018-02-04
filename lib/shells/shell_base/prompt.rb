@@ -72,7 +72,9 @@ module Shells
 
       # loop until the output matches the prompt regex.
       # if something gets output async server side, the silence timeout will be handy in getting the shell to reappear.
-      until output =~ prompt_match
+      # a match while waiting for output is invalid, so by requiring that flag to be false this should work with
+      # unbuffered input as well.
+      until output =~ prompt_match && !wait_for_output
         # hint that we need to let another thread run.
         Thread.pass
 

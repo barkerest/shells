@@ -61,50 +61,51 @@ module Shells
       options[:command_is_echoed] = true if options[:command_is_echoed].nil?
       ret = ''
 
-      begin
-        push_buffer # store the current buffer and start a fresh buffer
+      merge_local_buffer do
+        begin
+          # buffer while also passing data to the supplied block.
+          if block_given?
+            buffer_output(&block)
+          end
 
-        # buffer while also passing data to the supplied block.
-        if block_given?
-          buffer_output(&block)
-        end
+          command = command.to_s
 
-        # send the command and wait for the prompt to return.
-        debug 'Queueing command: ' + command
-        queue_input command + line_ending
-        if wait_for_prompt(options[:silence_timeout], options[:command_timeout], options[:timeout_error])
-          # get the output of the command, minus the trailing prompt.
-          ret =
-              if options[:get_output]
-                debug 'Reading output of command...'
-                command_output command, options[:command_is_echoed]
-              else
-                ''
+          # send the command and wait for the prompt to return.
+          debug 'Queueing command: ' + command
+          queue_input command + line_ending
+          if wait_for_prompt(options[:silence_timeout], options[:command_timeout], options[:timeout_error])
+            # get the output of the command, minus the trailing prompt.
+            ret =
+                if options[:get_output]
+                  debug 'Reading output of command...'
+                  command_output command, options[:command_is_echoed]
+                else
+                  ''
+                end
+
+            if options[:retrieve_exit_code]
+              self.last_exit_code = get_exit_code
+              if options[:on_non_zero_exit_code] == :raise
+                raise NonZeroExitCode.new(last_exit_code) unless last_exit_code == 0 || last_exit_code == :undefined
               end
-
-          if options[:retrieve_exit_code]
-            self.last_exit_code = get_exit_code
-            if options[:on_non_zero_exit_code] == :raise
-              raise NonZeroExitCode.new(last_exit_code) unless last_exit_code == 0 || last_exit_code == :undefined
+            else
+              self.last_exit_code = nil
             end
           else
-            self.last_exit_code = nil
+            # A timeout occurred and timeout_error was set to false.
+            self.last_exit_code = :timeout
+            ret = output
           end
-        else
-          # A timeout occurred and timeout_error was set to false.
-          self.last_exit_code = :timeout
-          ret = output
-        end
 
-      ensure
-        # return buffering to normal.
-        if block_given?
-          buffer_output
-        end
+        ensure
+          # return buffering to normal.
+          if block_given?
+            buffer_output
+          end
 
-        # restore the original buffer and merge the output from the command.
-        pop_merge_buffer
+        end
       end
+
       ret
     end
 

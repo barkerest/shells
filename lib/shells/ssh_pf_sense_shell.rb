@@ -1,4 +1,4 @@
-require 'shells/ssh_shell'
+require 'shells/ssh_bash_shell'
 require 'shells/pf_sense_common'
 
 module Shells
@@ -29,25 +29,27 @@ module Shells
   # +connect_timeout+::
   #     This is the maximum amount of time to wait for the initial connection to the SSH shell.
   #
-  #   Shells::PfSenseSshSession.new(
+  #   Shells::SshPfSenseShell.new(
   #       host: '10.10.10.10',
   #       user: 'somebody',
   #       password: 'super-secret'
   #   ) do |shell|
-  #     cfg = shell.get_config_section("aliases")
-  #     cfg["alias"] ||= []
-  #     cfg["alias"] << {
-  #         :name => "MY_NETWORK",
-  #         :type => "network",
-  #         :address => "192.168.1.0/24",
-  #         :descr => "My home network",
-  #         :details => "Created #{Time.now.to_s}"
-  #     }
-  #     shell.set_config_section("aliases", cfg, "Add home network")
-  #     shell.apply_filter_config
+  #     shell.pf_shell do |shell|
+  #       cfg = shell.get_config_section("aliases")
+  #       cfg["alias"] ||= []
+  #       cfg["alias"] << {
+  #           :name => "MY_NETWORK",
+  #           :type => "network",
+  #           :address => "192.168.1.0/24",
+  #           :descr => "My home network",
+  #           :details => "Created #{Time.now.to_s}"
+  #       }
+  #       shell.set_config_section("aliases", cfg, "Add home network")
+  #       shell.apply_filter_config
+  #     end
   #   end
   #
-  class PfSenseSshSession < SshShell
+  class SshPfSenseShell < SshBashShell
 
     include PfSenseCommon
 

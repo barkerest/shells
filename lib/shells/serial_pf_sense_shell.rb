@@ -1,4 +1,4 @@
-require 'shells/serial_shell'
+require 'shells/serial_bash_shell'
 require 'shells/pf_sense_common'
 
 module Shells
@@ -30,23 +30,25 @@ module Shells
   #     Unlike +silence_timeout+ this value does not reset when we receive feedback.
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
   #
-  #   Shells::PfSenseSerialSession.new(
+  #   Shells::SerialPfSenseShell.new(
   #       path: 'COM3'
   #   ) do |shell|
-  #     cfg = shell.get_config_section("aliases")
-  #     cfg["alias"] ||= []
-  #     cfg["alias"] << {
-  #         :name => "MY_NETWORK",
-  #         :type => "network",
-  #         :address => "192.168.1.0/24",
-  #         :descr => "My home network",
-  #         :details => "Created #{Time.now.to_s}"
-  #     }
-  #     shell.set_config_section("aliases", cfg, "Add home network")
-  #     shell.apply_filter_config
+  #     shell.pf_shell do |shell|
+  #       cfg = shell.get_config_section("aliases")
+  #       cfg["alias"] ||= []
+  #       cfg["alias"] << {
+  #           :name => "MY_NETWORK",
+  #           :type => "network",
+  #           :address => "192.168.1.0/24",
+  #           :descr => "My home network",
+  #           :details => "Created #{Time.now.to_s}"
+  #       }
+  #       shell.set_config_section("aliases", cfg, "Add home network")
+  #       shell.apply_filter_config
+  #     end
   #   end
   #
-  class PfSenseSerialSession < SerialShell
+  class SerialPfSenseShell < SerialShell
 
     include PfSenseCommon
 

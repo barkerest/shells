@@ -70,7 +70,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
     end
 
     assert session.session_complete?
-    assert session.combined_output =~ /ls -al/
+    assert session.output =~ /ls -al/
     assert session.stdout =~ /ls -al/
 
     assert_raises Shells::SessionCompleted do
@@ -212,7 +212,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
   def test_pf_sense_ssh
     log_header
     skip if @cfg['pf_sense_ssh'].empty?
-    Shells::PfSenseSshSession(@cfg['pf_sense_ssh'].merge(
+    Shells::PfSenseSshShell(@cfg['pf_sense_ssh'].merge(
         command_timeout: 5
     )) do |sh|
       assert sh.get_config_section('system').is_a?(Hash)
@@ -223,7 +223,7 @@ class ShellsTest < Minitest::Test #:nodoc: all
   def test_pf_sense_serial
     log_header
     skip if @cfg['pf_sense_serial'].empty?
-    Shells::PfSenseSerialSession(@cfg['pf_sense_serial'].merge(
+    Shells::SerialPfSenseShell(@cfg['pf_sense_serial'].merge(
         command_timeout: 5
     )) do |sh|
       assert sh.get_config_section('system').is_a?(Hash)
