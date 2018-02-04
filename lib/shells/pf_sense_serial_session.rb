@@ -1,4 +1,4 @@
-require 'shells/serial_session'
+require 'shells/serial_shell'
 require 'shells/pf_sense_common'
 
 module Shells
@@ -46,7 +46,7 @@ module Shells
   #     shell.apply_filter_config
   #   end
   #
-  class PfSenseSerialSession < SerialSession
+  class PfSenseSerialSession < SerialShell
 
     include PfSenseCommon
 

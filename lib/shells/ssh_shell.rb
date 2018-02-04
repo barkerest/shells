@@ -164,7 +164,7 @@ module Shells
 
       debug 'Calling setup_prompt...'
       setup_prompt
-      debug ' > setup'
+      debug ' > prompt setup'
     end
 
     def disconnect #:nodoc:

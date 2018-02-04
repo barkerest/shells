@@ -101,7 +101,7 @@ module Shells
         # So we'll navigate the menu to get the option for the shell.
         # For this first navigation we allow a delay only if we are not connected to a serial device.
         # Serial connections are always on, so they don't need to initialize first.
-        menu_option = get_menu_option 'Shell', !(Shells::SerialSession > self.class)
+        menu_option = get_menu_option 'Shell', !(Shells::SerialShell > self.class)
         raise MenuNavigationFailure unless menu_option
 
         # For 2.3 and 2.4 this is a valid match.

@@ -38,7 +38,7 @@ module Shells
 
     add_hook :on_after_run do |sh|
       sh.instance_eval do
-        if session_thread.status
+        if session_thread&.status
           session_thread.exit
         end
         self.session_thread = nil
@@ -64,9 +64,10 @@ module Shells
         debug 'Connecting...'
         connect
 
+        debug 'Starting output buffering...'
         buffer_output
 
-        # run the session asynchronously.
+        debug 'Starting session thread...'
         self.session_thread = Thread.start(self) do |sh|
           begin
             begin

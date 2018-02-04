@@ -1,6 +1,5 @@
 require 'rubyserial'
 require 'shells/shell_base'
-require 'shells/bash_common'
 
 module Shells
   ##
@@ -28,15 +27,6 @@ module Shells
   #     The default is :none.
   # +prompt+::
   #     The prompt used to determine when processes finish execution.
-  #     Defaults to '~~#', but if that doesn't work for some reason because it is valid output from one or more
-  #     commands, you can change it to something else.  It must be unique and cannot contain certain characters.
-  #     The characters you should avoid are !, $, \, /, ", and ' because no attempt is made to escape them and the
-  #     resulting prompt can very easily become something else entirely.  If they are provided, they will be
-  #     replaced to protect the shell from getting stuck.
-  # +fixed_prompt+::
-  #     A shortcut for telling the shell that the prompt is a fixed value (initially) and no attempt will be made
-  #     to change the prompt on startup.  This string is used as-is, but may cause problems if it contains the
-  #     invalid characters listed under +prompt+.
   # +quit+::
   #     If set, this defines the command to execute when quitting the session.
   #     The default is "exit" which will probably work most of the time.
@@ -62,21 +52,8 @@ module Shells
   #     If set to 0 (or less) there is no timeout.
   #     Unlike +silence_timeout+ this value does not reset when we receive feedback.
   #     This option can be overridden by providing an alternate value to the +exec+ method on a case-by-case basis.
-  # +override_set_prompt+::
-  #     If provided, this must be set to either a command string that will set the prompt, or a Proc that accepts
-  #     the shell as an argument.
-  #     If set to a string, the string is sent to the shell and we wait up to two seconds for the prompt to appear.
-  #     If that fails, we resend the string and wait one more time before failing.
-  #     If set to a Proc, the Proc is called.  If the Proc returns a false value, we fail.  If the Proc returns
-  #     a non-false value, we consider it successful.
-  # +override_get_exit_code+::
-  #     If provided, this must be set to either a command string that will retrieve the exit code, or a Proc that
-  #     accepts the shell as an argument.
-  #     If set to a string, the string is sent to the shell and the output is parsed as an integer and used as the exit
-  #     code.
-  #     If set to a Proc, the Proc is called and the return value of the proc is used as the exit code.
   #
-  #   Shells::SerialSession.new(
+  #   Shells::SerialShell.new(
   #       path: '/dev/ttyusb3',
   #       speed: 9600
   #   ) do |shell|
@@ -85,9 +62,30 @@ module Shells
   #     @app_is_installed = user_bin_files.include?('my_app')
   #   end
   #
-  class SerialSession < Shells::ShellBase
+  class SerialShell < Shells::ShellBase
 
-    include BashCommon
+    attr_accessor :serport
+    private :serport, :serport=
+
+    attr_accessor :ser_stdout_recv
+    private :ser_stdout_recv, :ser_stdout_recv=
+
+    attr_accessor :output_reader
+    private :output_reader, :output_reader=
+
+    add_hook :on_before_run do |sh|
+      sh.instance_eval do
+        self.serport = nil
+        self.output_reader = nil
+      end
+    end
+
+    add_hook :on_after_run do |sh|
+      sh.instance_eval do
+        self.serport = nil
+        self.output_reader = nil
+      end
+    end
 
     ##
     # Sets the line ending for the instance.
@@ -113,75 +111,68 @@ module Shells
       raise InvalidOption, 'Missing path.' if options[:path].to_s.strip == ''
     end
 
-    def exec_shell(&block) #:nodoc:
-
+    def connect #:nodoc:
       debug 'Opening serial port...'
-      @serport = Serial.new options[:path], options[:speed], options[:data_bits], options[:parity]
-
-      begin
-        # start buffering
-        buffer_output
-
-        # yield to the block
-        block.call
-
-      ensure
-        # send the quit message.
-        send_data options[:quit] + line_ending
-
-        debug 'Closing serial port...'
-        @serport.close
-        @serport = nil
-      end
-    end
-
-    def exec_prompt(&block) #:nodoc:
-      cmd = options[:override_set_prompt] || "PS1=\"#{options[:prompt]}\""
-      if cmd.respond_to?(:call)
-        raise Shells::FailedToSetPrompt unless cmd.call(self)
-      else
-        # set the prompt, wait up to 2 seconds for a response, then try one more time.
-        begin
-          exec cmd, command_timeout: 2, retrieve_exit_code: false, command_is_echoed: false
-        rescue Shells::CommandTimeout
-          begin
-            exec cmd, command_timeout: 2, retrieve_exit_code: false, command_is_echoed: false
-          rescue Shells::CommandTimeout
-            raise Shells::FailedToSetPrompt
+      self.serport = Serial.new(options[:path], options[:speed], options[:data_bits], options[:parity])
+      debug 'Starting output reading thread...'
+      self.output_reader = Thread.start(self) do |shell|
+        while true
+          shell.instance_eval do
+            data = ''
+            while (byte = serport&.getbyte)
+              data << byte.chr
+            end
+            if data != ''
+              # add to the output buffer.
+              debug "Received: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
+              ser_stdout_recv&.call data
+            end
           end
+          Thread.pass
         end
       end
 
-      # yield to the block
-      block.call
+    end
+
+    def disconnect #:nodoc:
+      output_reader&.exit
+      serport.close
+    end
+
+    def setup
+      # send a newline to the shell to (hopefully) redraw a menu.
+      debug 'Refreshing...'
+      queue_input line_ending
+
+      debug 'Calling setup_prompt...'
+      setup_prompt
+      debug ' > prompt setup'
     end
 
     def send_data(data) #:nodoc:
-      @serport.write data
+      serport.write data
       debug "Sent: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
     end
 
-    def loop(&block) #:nodoc:
+    def active?
+      return false if serport.nil?
+      return false if serport.closed?
+      true
+    end
+
+    def io_loop(&block) #:nodoc:
       while true
-        while true
-          data = ''
-          while (byte = @serport.getbyte)
-            data << byte.chr
-          end
-          break if data == ""
-          debug "Received: (#{data.size} bytes) #{(data.size > 32 ? (data[0..30] + '...') : data).inspect}"
-          @_stdout_recv.call data
-        end
-        break unless block&.call
+        break unless block.call
+        Thread.pass
       end
     end
 
     def stdout_received(&block) #:nodoc:
-      @_stdout_recv = block
+      sync { self.ser_stdout_recv = block }
     end
 
     def stderr_received(&block) #:nodoc:
-      @_stderr_recv = block
+      nil # no stderr to report.
     end
 
   end
