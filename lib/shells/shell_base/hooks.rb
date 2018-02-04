@@ -7,12 +7,12 @@ module Shells
       @hooks ||= {}
     end
 
-    def self.parent_hooks
-      @parent_hooks ||= (superclass.respond_to?(:hooks, true) ? superclass.send(:hooks) : {})
+    def self.parent_hooks(name)
+      superclass.respond_to?(:all_hooks, true) ? superclass.send(:all_hooks, name) : []
     end
 
     def self.all_hooks(name)
-      (parent_hooks[name] || []) + (hooks[name] || [])
+      parent_hooks(name) + (hooks[name] || [])
     end
 
     protected

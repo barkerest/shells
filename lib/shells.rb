@@ -3,6 +3,7 @@ require 'shells/errors'
 require 'shells/shell_base'
 require 'shells/ssh_shell'
 require 'shells/serial_session'
+require 'shells/ssh_bash_shell'
 require 'shells/pf_sense_ssh_session'
 require 'shells/pf_sense_serial_session'
 

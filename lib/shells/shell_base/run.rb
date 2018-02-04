@@ -36,6 +36,16 @@ module Shells
       end
     end
 
+    add_hook :on_after_run do |sh|
+      sh.instance_eval do
+        if session_thread.status
+          session_thread.exit
+        end
+        self.session_thread = nil
+        self.ignore_io_error = false
+      end
+    end
+
     ##
     # Runs a shell session.
     #

@@ -89,7 +89,9 @@ module Shells
     ##
     # Uses the PS1= command to set the prompt for the shell.
     def setup_prompt #:nodoc:
-      exec_ignore_code "PS1=#{options[:shell]}", command_timeout: 10, timeout_error: true
+      command = "PS1=#{options[:prompt]}"
+      sleep 1.0 # let shell initialize fully.
+      exec_ignore_code command, silence_timeout: 10, command_timeout: 10, timeout_error: true, get_output: false
     end
 
     ##

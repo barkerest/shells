@@ -52,7 +52,7 @@ module Shells
       raise Shells::NotRunning unless running?
 
       options ||= {}
-      options = { timeout_error: true }.merge(options)
+      options = { timeout_error: true, get_output: true }.merge(options)
       options = self.options.merge(options.inject({}) { |m,(k,v)| m[k.to_sym] = v; m })
       options[:retrieve_exit_code] = self.options[:retrieve_exit_code] if options[:retrieve_exit_code] == :default
       options[:on_non_zero_exit_code] = self.options[:on_non_zero_exit_code] unless [:raise, :ignore].include?(options[:on_non_zero_exit_code])
@@ -74,8 +74,14 @@ module Shells
         queue_input command + line_ending
         if wait_for_prompt(options[:silence_timeout], options[:command_timeout], options[:timeout_error])
           # get the output of the command, minus the trailing prompt.
-          debug 'Reading output of command...'
-          ret = command_output command, options[:command_is_echoed]
+          ret =
+              if options[:get_output]
+                debug 'Reading output of command...'
+                command_output command, options[:command_is_echoed]
+              else
+                ''
+              end
+
           if options[:retrieve_exit_code]
             self.last_exit_code = get_exit_code
             if options[:on_non_zero_exit_code] == :raise
