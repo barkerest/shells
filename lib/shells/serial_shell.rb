@@ -5,13 +5,6 @@ module Shells
   ##
   # Executes a serial session with a device.
   #
-  # The default setup of this class should work well with any bash-like shell.
-  # In particular, the +exec_prompt+ method sets the "PS1" environment variable, which should set the prompt the shell
-  # uses, and the +get_exit_code+ methods retrieves the value of the "$?" variable which should contain the exit code
-  # from the last action.  Because there is a possibility that your shell does not utilize those methods, the
-  # +override_set_prompt+ and +override_get_exit_code+ options are available to change the behavior.
-  #
-  #
   # Valid options:
   # +path+::
   #     The path to the serial device (e.g. - COM3 or /dev/tty2)

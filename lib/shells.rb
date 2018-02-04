@@ -4,18 +4,13 @@ require 'shells/shell_base'
 require 'shells/ssh_shell'
 require 'shells/serial_shell'
 require 'shells/ssh_bash_shell'
+require 'shells/serial_bash_shell'
 require 'shells/pf_sense_ssh_session'
 require 'shells/pf_sense_serial_session'
 
 
 ##
 # A set of basic shell classes.
-#
-# All shell sessions can be accessed by class name without calling +new+.
-#   Shells::SshSession(host: ...)
-#   Shells::SerialSession(path: ...)
-#   Shells::PfSenseSshSession(host: ...)
-#   Shells::PfSenseSerialSession(path: ...)
 #
 module Shells
 
