@@ -50,7 +50,7 @@ module Shells
     #       from the shell before the next character will be sent.
     #
     # Please check the documentation for each shell class for specific shell options.
-    def initialize(options = {})
+    def initialize(options = {}, &block)
 
       # cannot instantiate a ShellBase
       raise NotImplementedError if self.class == Shells::ShellBase
@@ -84,6 +84,11 @@ module Shells
       self.orig_options = self.options  # sort of, we might provide helpers (like +change_quit+)
 
       run_hook :on_init
+
+      # allow for backwards compatibility.
+      if block_given?
+        run &block
+      end
 
     end
 
