@@ -165,7 +165,7 @@ module Shells
     private
 
     def command_match(command)
-      p = regex_escape options[:prompt]
+      p = prompt_match.source[0...-7] # trim off [ \t]*$
       c = regex_escape command
       /\A(?:#{p}\s*)?#{c}[ \t]*\z/
     end
